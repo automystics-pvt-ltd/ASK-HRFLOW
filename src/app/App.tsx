@@ -13,7 +13,6 @@ import { DashboardLayout } from './components/DashboardLayout';
 import { DashboardOverview } from './components/DashboardOverview';
 import { EmployeeManagement } from './components/EmployeeManagement';
 import { AttendanceLeave } from './components/AttendanceLeave';
-import { AIAssistant } from './components/AIAssistant';
 import {
   PayrollManagement,
   RecruitmentManagement,
@@ -22,9 +21,10 @@ import {
   SettingsPage,
 } from './feature-pages';
 
-const validTabs = ['dashboard', 'employees', 'attendance', 'payroll', 'recruitment', 'performance', 'engagement', 'ai-assistant', 'notifications', 'access', 'audit', 'settings'];
+const validTabs = ['dashboard', 'employees', 'attendance', 'payroll', 'recruitment', 'performance', 'engagement', 'notifications', 'access', 'audit', 'settings'];
 const tabFromHash = () => {
   const h = window.location.hash.replace('#/', '').replace('#', '');
+  if (h === 'ai-assistant') return 'dashboard';
   return validTabs.includes(h) ? h : 'dashboard';
 };
 
@@ -55,7 +55,6 @@ function Workspace() {
       case 'recruitment': return <RecruitmentManagement />;
       case 'performance': return <PerformanceManagement />;
       case 'engagement': return <EmployeeEngagement />;
-      case 'ai-assistant': return <AIAssistant />;
       case 'notifications': return <NotificationsPage />;
       case 'access': return <AccessControl />;
       case 'audit': return <AuditLogs />;
