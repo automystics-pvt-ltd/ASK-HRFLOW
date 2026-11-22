@@ -95,7 +95,7 @@ export function LoginScreen() {
                 const Icon = d.icon;
                 return (
                   <button key={d.email} type="button" onClick={() => void submit(d.email, 'demo123')} disabled={busy}
-                    className="flex items-center gap-3 rounded-xl border border-border p-3 text-left hover:bg-accent/60 transition-colors">
+                    className="flex items-center gap-3 rounded-xl border border-primary/20 bg-background p-3 text-left text-foreground hover:bg-primary/5 hover:border-primary/35 transition-colors">
                     <span className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center"><Icon className="w-4 h-4" /></span>
                     <span className="min-w-0">
                       <span className="block text-sm font-medium">Continue as {roleLabels[d.role].label}</span>
