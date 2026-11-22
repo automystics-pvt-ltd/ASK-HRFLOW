@@ -26,4 +26,12 @@ describe('RBAC defaultRolePermissions', () => {
     assert.equal(hasAction(p, 'payroll', 'read'), true);
     assert.equal(hasAction(p, 'settings', 'update'), false);
   });
+
+  it('manager can approve attendance and read employees/payroll', () => {
+    const p = defaultRolePermissions.manager;
+    assert.equal(hasAction(p, 'employees', 'read'), true);
+    assert.equal(hasAction(p, 'attendance', 'approve'), true);
+    assert.equal(hasAction(p, 'payroll', 'read'), true);
+    assert.equal(hasAction(p, 'access', 'update'), false);
+  });
 });

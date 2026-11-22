@@ -258,7 +258,7 @@ export function ManagerDashboard({ go }: { go: (t: string) => void }) {
           <CardContent className="space-y-2">
             {teamReport.length === 0 && <p className="text-sm text-muted-foreground">No team members assigned.</p>}
             {teamReport.map((r) => (
-              <div key={String(r.userId)} className="flex justify-between text-sm border-b py-2">
+              <div key={String(r.userId ?? r.employeeId)} className="flex justify-between text-sm border-b py-2">
                 <span>{String(r.name)}</span>
                 <span className="text-muted-foreground">
                   Rem {Number(r.leaveRemaining)} · Pend {Number(r.pendingLeave)}
@@ -268,6 +268,26 @@ export function ManagerDashboard({ go }: { go: (t: string) => void }) {
           </CardContent>
         </Card>
       </div>
+      <ApprovalReasonDialog
+        open={Boolean(reasonTarget)}
+        title={reasonTarget?.action === 'approve' ? 'Approval reason' : 'Rejection reason'}
+        actionLabel={reasonTarget?.action === 'approve' ? 'Approve' : 'Reject'}
+        onOpenChange={(open) => {
+          if (!open) setReasonTarget(null);
+        }}
+        onConfirm={async (comment) => {
+          if (!reasonTarget) return;
+          try {
+            await approvalsApi.action(reasonTarget.id, reasonTarget.action, comment);
+            toast.success(reasonTarget.action === 'approve' ? 'Approved' : 'Rejected');
+            load();
+          } catch (e) {
+            toast.error(e instanceof ApiError ? e.message : 'Action failed');
+          } finally {
+            setReasonTarget(null);
+          }
+        }}
+      />
     </div>
   );
 }

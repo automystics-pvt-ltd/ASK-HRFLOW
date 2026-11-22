@@ -110,7 +110,6 @@ router.put('/categories/:id', requireAuth, requirePermission('settings', 'update
 });
 
 router.get('/', requireAuth, requirePermission('attendance', 'read'), async (req, res) => {
-  const role = req.user!.sub;
   const canAll =
     req.user!.role === 'admin' ||
     req.user!.role === 'hr' ||
@@ -145,7 +144,7 @@ router.get('/', requireAuth, requirePermission('attendance', 'read'), async (req
        LEFT JOIN users u ON u.id = c.user_id
        WHERE c.tenant_id = $1 AND c.user_id = $2
        ORDER BY c.created_at DESC`,
-      [DEFAULT_TENANT, role],
+      [DEFAULT_TENANT, req.user!.sub],
     );
   }
   res.json({ claims: rows.map((r) => mapClaim(r)) });
