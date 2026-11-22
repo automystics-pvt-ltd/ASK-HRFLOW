@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { accessApi, authApi, ApiError } from './api';
+import { accessApi, auditApi, authApi, noticesApi, ApiError } from './api';
 
 export type Role = 'admin' | 'hr' | 'employee';
 export type Action = 'create' | 'read' | 'update' | 'delete' | 'approve' | 'export';
@@ -135,18 +135,46 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    accessApi
+      .permissions()
+      .then(({ roleTemplates: rt }) => setRoleTemplates((prev) => ({ ...prev, ...rt })))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     if (!sessionUser) return;
     accessApi
       .users()
       .then(({ users: list }) => setUsers(list))
-      .catch(() => {
-        setUsers([sessionUser]);
-      });
+      .catch(() => setUsers([sessionUser]));
+    noticesApi
+      .list()
+      .then(({ notices: list }) =>
+        setNotices(
+          list.map((n) => ({
+            id: n.id,
+            ts: n.ts,
+            userId: n.userId,
+            title: n.title,
+            body: n.body,
+            kind: n.kind,
+            read: n.read ?? [],
+          })),
+        ),
+      )
+      .catch(() => {});
+    if (sessionUser.role === 'admin' || sessionUser.permissions?.audit?.includes('read')) {
+      auditApi
+        .list(200)
+        .then(({ audit: rows }) => setAudit(rows))
+        .catch(() => {});
+    }
   }, [sessionUser?.id]);
 
   const user = sessionUser;
   const permissionsOf = useCallback(
-    (u: AppUser): PermissionSet => (u.role === 'admin' ? defaultRolePermissions.admin : u.permissions ?? roleTemplates[u.role]),
+    (u: AppUser): PermissionSet =>
+      u.role === 'admin' ? defaultRolePermissions.admin : u.permissions ?? roleTemplates[u.role] ?? defaultRolePermissions[u.role],
     [roleTemplates],
   );
   const can = useCallback(
@@ -198,10 +226,11 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
     if (t.role === 'admin') return 'Admin permissions are fixed.';
     if (on && !grantable(module, action)) return 'You cannot grant a permission you do not hold.';
     if (module === 'access' && user?.role !== 'admin') return 'Only an Admin can change Access Control permissions.';
-    patchUser(id, (u) => {
-      const base = { ...(permissionsOf(u)) };
-      const set = new Set(base[module] ?? []); on ? set.add(action) : set.delete(action);
-      return { ...u, permissions: { ...base, [module]: actions.filter((a) => set.has(a)) } };
+  const base = { ...permissionsOf(t) };
+    const set = new Set(base[module] ?? []); on ? set.add(action) : set.delete(action);
+    const permissions = { ...base, [module]: actions.filter((a) => set.has(a)) };
+    void accessApi.updateUser(id, { permissions }).then(({ user: nu }) => patchUser(id, () => nu)).catch(() => {
+      patchUser(id, (u) => ({ ...u, permissions }));
     });
     log('Permission changed', `${on ? 'Granted' : 'Revoked'} ${action.toUpperCase()} on ${moduleLabel(module)} for ${t.name}`, id);
     notify({ userId: id, kind: 'access', title: 'Your access was updated', body: `${action.toUpperCase()} on ${moduleLabel(module)} was ${on ? 'enabled' : 'disabled'}.` });
@@ -227,7 +256,7 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
     const t = users.find((u) => u.id === id); const err = canManage(t); if (err || !t) return err ?? 'User not found.';
     if (role === 'admin' && user?.role !== 'admin') return 'Only an Admin can assign the Admin role.';
     if (id === user?.id) return 'You cannot change your own role.';
-    patchUser(id, ({ permissions, ...u }) => ({ ...u, role }));
+    void accessApi.updateUser(id, { role }).then(({ user: nu }) => patchUser(id, () => nu)).catch(() => patchUser(id, ({ permissions, ...u }) => ({ ...u, role })));
     log('Role assigned', `${t.name}: ${roleLabels[t.role].label} → ${roleLabels[role].label}`, id);
     notify({ userId: id, kind: 'access', title: 'Your role changed', body: `You are now ${roleLabels[role].label}.` });
     return null;
@@ -235,7 +264,7 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
   const setUserActive: Ctx['setUserActive'] = (id, active) => {
     const t = users.find((u) => u.id === id); const err = canManage(t); if (err || !t) return err ?? 'User not found.';
     if (id === user?.id) return 'You cannot deactivate your own account.';
-    patchUser(id, (u) => ({ ...u, active }));
+    void accessApi.updateUser(id, { active }).then(({ user: nu }) => patchUser(id, () => nu)).catch(() => patchUser(id, (u) => ({ ...u, active })));
     log(active ? 'Account activated' : 'Account deactivated', `${t.name} was ${active ? 'activated' : 'deactivated'}`, id);
     return null;
   };
@@ -250,17 +279,38 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
     if (!can('access', 'create')) return 'You do not have permission to create users.';
     if (n.role === 'admin' && user?.role !== 'admin') return 'Only an Admin can create Admin accounts.';
     if (users.some((u) => u.email.toLowerCase() === n.email.trim().toLowerCase())) return 'A user with this email already exists.';
-    const nu: AppUser = { id: 'u-' + uid(), name: n.name.trim(), email: n.email.trim(), role: n.role, department: n.department, active: true, departmentAccess: n.role === 'employee' ? [] : n.role === 'admin' ? departments : [n.department] };
-    setUsers((a) => [...a, nu]);
-    log('User created', `${nu.name} created as ${roleLabels[nu.role].label}`, nu.id);
-    notify({ userId: 'u-admin', kind: 'alert', title: 'New user onboarded', body: `${nu.name} (${roleLabels[nu.role].label}) joined ${nu.department}.` });
+    void accessApi
+      .createUser({ name: n.name, email: n.email, role: n.role, department: n.department })
+      .then(({ user: nu }) => {
+        setUsers((a) => [...a, nu]);
+        log('User created', `${nu.name} created as ${roleLabels[nu.role].label}`, nu.id);
+        notify({ userId: 'u-admin', kind: 'alert', title: 'New user onboarded', body: `${nu.name} (${roleLabels[nu.role].label}) joined ${nu.department}.` });
+      })
+      .catch(() => {
+        const nu: AppUser = {
+          id: 'u-' + uid(),
+          name: n.name.trim(),
+          email: n.email.trim(),
+          role: n.role,
+          department: n.department,
+          active: true,
+          departmentAccess: n.role === 'employee' ? [] : n.role === 'admin' ? departments : [n.department],
+        };
+        setUsers((a) => [...a, nu]);
+      });
     return null;
   };
 
   const visible = (n: Notice) => !!user && (n.userId === 'all' || n.userId === user.id);
   const unread = notices.filter((n) => visible(n) && !n.read.includes(user?.id ?? '')).length;
-  const markRead = (id?: string) =>
-    setNotices((all) => all.map((n) => (visible(n) && (!id || n.id === id) && user && !n.read.includes(user.id) ? { ...n, read: [...n.read, user.id] } : n)));
+  const markRead = (id?: string) => {
+    if (id) void noticesApi.markRead(id).catch(() => {});
+    setNotices((all) =>
+      all.map((n) =>
+        visible(n) && (!id || n.id === id) && user && !n.read.includes(user.id) ? { ...n, read: [...n.read, user.id] } : n,
+      ),
+    );
+  };
 
   const value: Ctx = {
     user, role: user?.role ?? 'employee', users, roleTemplates, audit, notices: notices.filter(visible), unread, authReady,

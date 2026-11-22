@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { attendanceApi } from '../lib/api';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -93,11 +95,20 @@ export function Timesheet() {
     setError('');
     try {
       const stamp = await getLocation();
+      const k = dayKey();
+      const cur = entries.find((e) => e.date === k);
+      const apiCall = !cur
+        ? attendanceApi.checkIn({ latitude: stamp.lat, longitude: stamp.lng, accuracy: stamp.accuracy })
+        : attendanceApi.checkOut({ latitude: stamp.lat, longitude: stamp.lng, accuracy: stamp.accuracy });
+      try {
+        await apiCall;
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Attendance sync failed');
+      }
       setEntries((prev) => {
-        const k = dayKey();
-        const cur = prev.find((e) => e.date === k);
-        if (!cur) return [{ date: k, checkIn: stamp }, ...prev];
-        if (cur.checkOut) return prev;
+        const existing = prev.find((e) => e.date === k);
+        if (!existing) return [{ date: k, checkIn: stamp }, ...prev];
+        if (existing.checkOut) return prev;
         return prev.map((e) => (e.date === k ? { ...e, checkOut: stamp } : e));
       });
     } catch (e) {

@@ -13,12 +13,13 @@ import {
 } from 'lucide-react';
 
 const mockData = {
-  totalEmployees: 247,
-  activeEmployees: 234,
-  newHires: 8,
-  monthlyPayroll: 1240000,
-  attendanceRate: 94.2,
+  totalEmployees: 0,
+  activeEmployees: 0,
+  newHires: 0,
+  monthlyPayroll: 0,
+  attendanceRate: 0,
   engagementScore: 87,
+  pendingLeave: 0,
   recentActivities: [
     { id: 1, user: 'Sarah Johnson', action: 'Submitted leave request', time: '2 hours ago', type: 'leave' },
     { id: 2, user: 'Mike Chen', action: 'Completed performance review', time: '4 hours ago', type: 'performance' },
@@ -46,14 +47,20 @@ export function DashboardOverview() {
   const { user } = useAccess();
   const [stats, setStats] = useState(mockData);
   useEffect(() => {
-    dashboardApi.stats().then(({ stats: s }) => {
-      setStats((prev) => ({
-        ...prev,
-        totalEmployees: s.totalEmployees ?? prev.totalEmployees,
-        activeEmployees: s.activeEmployees ?? prev.activeEmployees,
-        attendanceRate: s.attendanceRate ?? prev.attendanceRate,
-      }));
-    }).catch(() => {});
+    dashboardApi
+      .stats()
+      .then(({ stats: s }) => {
+        setStats((prev) => ({
+          ...prev,
+          totalEmployees: s.totalEmployees,
+          activeEmployees: s.activeEmployees,
+          newHires: s.newHires,
+          monthlyPayroll: s.monthlyPayroll,
+          attendanceRate: s.attendanceRate,
+          pendingLeave: s.pendingLeave,
+        }));
+      })
+      .catch(() => {});
   }, []);
 
   return (

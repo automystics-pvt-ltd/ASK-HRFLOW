@@ -32,12 +32,8 @@ export type EmployeeRecord = {
   skills?: string[];
 };
 
-export const mockEmployees: EmployeeRecord[] = [
-  { id: 1, name: 'Sarah Johnson', email: 'sarah.johnson@company.com', department: 'Engineering', position: 'Senior Developer', status: 'Active', joinDate: '2022-03-15', salary: 95000, location: 'New York', country: 'United States', avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b1d3?w=40&h=40&fit=crop&crop=face', manager: 'John Smith', skills: ['React', 'Node.js'] },
-  { id: 2, name: 'Mike Chen', email: 'mike.chen@company.com', department: 'Product', position: 'Product Manager', status: 'Active', joinDate: '2021-08-22', salary: 110000, location: 'San Francisco', country: 'United States', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=40&h=40&fit=crop&crop=face', skills: ['Product Strategy'] },
-  { id: 3, name: 'Lisa Brown', email: 'lisa.brown@company.com', department: 'Design', position: 'UX Designer', status: 'On Leave', joinDate: '2023-01-10', salary: 85000, location: 'London', country: 'United Kingdom', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=40&h=40&fit=crop&crop=face', skills: ['Figma'] },
-  { id: 4, name: 'David Wilson', email: 'david.wilson@company.com', department: 'Sales', position: 'Sales Executive', status: 'Active', joinDate: '2020-11-05', salary: 75000, location: 'Dubai', country: 'United Arab Emirates', avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop&crop=face', skills: ['CRM'] },
-];
+/** Legacy type placeholder — list data comes from `/api/employees`. */
+export const mockEmployees: EmployeeRecord[] = [];
 
 const departments = ['All', 'Engineering', 'Product', 'Design', 'Sales', 'Marketing', 'HR'];
 const statuses = ['All', 'Active', 'On Leave', 'Inactive'];
@@ -53,7 +49,7 @@ function mapRow(row: Record<string, unknown>): EmployeeRecord {
     position: String(row.position ?? ''),
     status: String(row.status ?? 'Active'),
     joinDate: String(row.join_date ?? row.joinDate ?? '2020-01-01').slice(0, 10),
-    salary: Number(row.salary ?? 0),
+    salary: row.salary == null ? 0 : Number(row.salary),
     location: String(row.location ?? ''),
     country: String(row.country ?? 'United States'),
     avatar: row.avatar ? String(row.avatar) : undefined,
@@ -65,12 +61,43 @@ function mapRow(row: Record<string, unknown>): EmployeeRecord {
 export function EmployeeManagement() {
   const { can } = useRole();
   const { currencyFor } = useCurrency();
-  const [employees, setEmployees] = useState<EmployeeRecord[]>(mockEmployees);
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [searchTerm, setSearchTerm] = useState(() => { const q = sessionStorage.getItem('global-search') ?? ''; sessionStorage.removeItem('global-search'); return q; });
   const [selectedDepartment, setSelectedDepartment] = useState('All');
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeRecord | null>(null);
   const [isAddEmployeeOpen, setIsAddEmployeeOpen] = useState(false);
+  const [addForm, setAddForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    department: 'Engineering',
+    position: '',
+    salary: '',
+    joinDate: new Date().toISOString().slice(0, 10),
+    location: '',
+    country: 'United States',
+  });
+  const [addBusy, setAddBusy] = useState(false);
+  const [listError, setListError] = useState('');
+  const [editBusy, setEditBusy] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    department: 'Engineering',
+    position: '',
+    salary: '',
+    status: 'Active',
+    location: '',
+    country: 'United States',
+  });
+
+  const reloadEmployees = () =>
+    employeesApi
+      .list()
+      .then(({ employees: rows }) => setEmployees((rows ?? []).map(mapRow)))
+      .catch((e) => setListError(e instanceof Error ? e.message : 'Failed to load employees'));
 
   useEffect(() => {
     const on = (ev: Event) => setSearchTerm((ev as CustomEvent<string>).detail);
@@ -79,10 +106,92 @@ export function EmployeeManagement() {
   }, []);
 
   useEffect(() => {
-    employeesApi.list().then(({ employees: rows }) => {
-      if (rows?.length) setEmployees(rows.map(mapRow));
-    }).catch(() => {});
+    void reloadEmployees();
   }, []);
+
+  const openEdit = (employee: EmployeeRecord) => {
+    setSelectedEmployee(employee);
+    setEditForm({
+      name: employee.name,
+      email: employee.email,
+      phone: employee.phone ?? '',
+      department: employee.department,
+      position: employee.position,
+      salary: String(employee.salary || ''),
+      status: employee.status,
+      location: employee.location,
+      country: employee.country,
+    });
+  };
+
+  const submitEditEmployee = async () => {
+    if (!selectedEmployee) return;
+    if (!editForm.name.trim() || !editForm.email.trim() || !editForm.position.trim()) {
+      toast.error('Name, email and position are required.');
+      return;
+    }
+    setEditBusy(true);
+    try {
+      await employeesApi.update(selectedEmployee.id, {
+        name: editForm.name.trim(),
+        email: editForm.email.trim(),
+        phone: editForm.phone.trim() || null,
+        department: editForm.department,
+        position: editForm.position.trim(),
+        salary: Number(editForm.salary) || 0,
+        status: editForm.status,
+        location: editForm.location.trim() || null,
+        country: editForm.country,
+      });
+      toast.success('Employee updated');
+      setSelectedEmployee(null);
+      await reloadEmployees();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not update employee');
+    } finally {
+      setEditBusy(false);
+    }
+  };
+
+  const submitAddEmployee = async () => {
+    if (!addForm.name.trim() || !addForm.email.trim() || !addForm.position.trim()) {
+      toast.error('Name, email and position are required.');
+      return;
+    }
+    setAddBusy(true);
+    try {
+      await employeesApi.create({
+        name: addForm.name.trim(),
+        email: addForm.email.trim(),
+        phone: addForm.phone.trim() || null,
+        department: addForm.department,
+        position: addForm.position.trim(),
+        salary: Number(addForm.salary) || 0,
+        joinDate: addForm.joinDate,
+        location: addForm.location.trim() || null,
+        country: addForm.country,
+        status: 'Active',
+      });
+      toast.success('Employee created');
+      setIsAddEmployeeOpen(false);
+      setAddForm({
+        name: '',
+        email: '',
+        phone: '',
+        department: 'Engineering',
+        position: '',
+        salary: '',
+        joinDate: new Date().toISOString().slice(0, 10),
+        location: '',
+        country: 'United States',
+      });
+      await reloadEmployees();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not create employee');
+    } finally {
+      setAddBusy(false);
+    }
+  };
 
   const filteredEmployees = employees.filter((employee) => {
     const matchesSearch = employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -120,11 +229,35 @@ export function EmployeeManagement() {
           {can.canAddEmployee && (
             <Dialog open={isAddEmployeeOpen} onOpenChange={setIsAddEmployeeOpen}>
               <DialogTrigger asChild><Button className="gap-2"><Plus className="w-4 h-4" />Add Employee</Button></DialogTrigger>
-              <DialogContent><DialogHeader><DialogTitle>Add New Employee</DialogTitle></DialogHeader><div className="py-4 space-y-2"><Label>Name</Label><Input placeholder="Full name" /></div></DialogContent>
+              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader><DialogTitle>Add New Employee</DialogTitle></DialogHeader>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
+                  <div className="space-y-2 md:col-span-2"><Label>Full name</Label><Input value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} placeholder="Full name" /></div>
+                  <div className="space-y-2"><Label>Email</Label><Input type="email" value={addForm.email} onChange={(e) => setAddForm({ ...addForm, email: e.target.value })} placeholder="name@company.com" /></div>
+                  <div className="space-y-2"><Label>Phone</Label><Input value={addForm.phone} onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })} placeholder="+1 …" /></div>
+                  <div className="space-y-2">
+                    <Label>Department</Label>
+                    <Select value={addForm.department} onValueChange={(v) => setAddForm({ ...addForm, department: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{departments.slice(1).map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2"><Label>Position</Label><Input value={addForm.position} onChange={(e) => setAddForm({ ...addForm, position: e.target.value })} placeholder="Job title" /></div>
+                  <div className="space-y-2"><Label>Salary</Label><Input type="number" value={addForm.salary} onChange={(e) => setAddForm({ ...addForm, salary: e.target.value })} placeholder="0" /></div>
+                  <div className="space-y-2"><Label>Start date</Label><Input type="date" value={addForm.joinDate} onChange={(e) => setAddForm({ ...addForm, joinDate: e.target.value })} /></div>
+                  <div className="space-y-2"><Label>Location</Label><Input value={addForm.location} onChange={(e) => setAddForm({ ...addForm, location: e.target.value })} placeholder="City" /></div>
+                  <div className="space-y-2"><Label>Country</Label><Input value={addForm.country} onChange={(e) => setAddForm({ ...addForm, country: e.target.value })} /></div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setIsAddEmployeeOpen(false)}>Cancel</Button>
+                  <Button disabled={addBusy} onClick={() => void submitAddEmployee()}>{addBusy ? 'Saving…' : 'Add Employee'}</Button>
+                </div>
+              </DialogContent>
             </Dialog>
           )}
         </div>
       </div>
+      {listError && <p className="text-sm text-destructive">{listError}</p>}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {[
@@ -189,7 +322,7 @@ export function EmployeeManagement() {
                       <TableCell>{getStatusBadge(employee.status)}</TableCell>
                       <TableCell>{new Date(employee.joinDate).toLocaleDateString()}</TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="icon" onClick={() => setSelectedEmployee(employee)}><Edit className="w-4 h-4" /></Button>
+                        <Button variant="ghost" size="icon" onClick={() => openEdit(employee)} aria-label={`Edit ${employee.name}`}><Edit className="w-4 h-4" /></Button>
                         <Button variant="ghost" size="icon"><MoreVertical className="w-4 h-4" /></Button>
                       </TableCell>
                     </TableRow>
@@ -202,7 +335,7 @@ export function EmployeeManagement() {
         <TabsContent value="cards">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredEmployees.map((employee) => (
-              <Card key={employee.id} className="border border-border rounded-xl cursor-pointer" onClick={() => setSelectedEmployee(employee)}>
+              <Card key={employee.id} className="border border-border rounded-xl cursor-pointer" onClick={() => openEdit(employee)}>
                 <CardContent className="p-6">
                   <div className="flex justify-between mb-4">
                     <motionEmployeeHeader employee={employee} />
@@ -220,13 +353,43 @@ export function EmployeeManagement() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={!!selectedEmployee} onOpenChange={() => setSelectedEmployee(null)}>
-        <DialogContent>
+      <Dialog open={!!selectedEmployee} onOpenChange={(open) => !open && setSelectedEmployee(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           {selectedEmployee && (
             <>
-              <DialogHeader><DialogTitle>{selectedEmployee.name}</DialogTitle></DialogHeader>
-              <p className="text-sm text-muted-foreground">{selectedEmployee.position} · {selectedEmployee.department}</p>
-              <p className="text-sm">{formatMoney(selectedEmployee.salary, currencyFor(selectedEmployee.id, selectedEmployee.country))}</p>
+              <DialogHeader><DialogTitle>Edit {selectedEmployee.name}</DialogTitle></DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                {formatMoney(selectedEmployee.salary, currencyFor(selectedEmployee.id, selectedEmployee.country))} current salary baseline
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
+                <div className="space-y-2 md:col-span-2"><Label>Full name</Label><Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} disabled={!can.canEditEmployee} /></div>
+                <div className="space-y-2"><Label>Email</Label><Input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} disabled={!can.canEditEmployee} /></div>
+                <div className="space-y-2"><Label>Phone</Label><Input value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} disabled={!can.canEditEmployee} /></div>
+                <div className="space-y-2">
+                  <Label>Department</Label>
+                  <Select value={editForm.department} onValueChange={(v) => setEditForm({ ...editForm, department: v })} disabled={!can.canEditEmployee}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{departments.slice(1).map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2"><Label>Position</Label><Input value={editForm.position} onChange={(e) => setEditForm({ ...editForm, position: e.target.value })} disabled={!can.canEditEmployee} /></div>
+                <div className="space-y-2"><Label>Salary</Label><Input type="number" value={editForm.salary} onChange={(e) => setEditForm({ ...editForm, salary: e.target.value })} disabled={!can.canEditEmployee} /></div>
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <Select value={editForm.status} onValueChange={(v) => setEditForm({ ...editForm, status: v })} disabled={!can.canEditEmployee}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{statuses.slice(1).map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2"><Label>Location</Label><Input value={editForm.location} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} disabled={!can.canEditEmployee} /></div>
+                <div className="space-y-2"><Label>Country</Label><Input value={editForm.country} onChange={(e) => setEditForm({ ...editForm, country: e.target.value })} disabled={!can.canEditEmployee} /></div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setSelectedEmployee(null)}>Close</Button>
+                {can.canEditEmployee && (
+                  <Button disabled={editBusy} onClick={() => void submitEditEmployee()}>{editBusy ? 'Saving…' : 'Save changes'}</Button>
+                )}
+              </div>
             </>
           )}
         </DialogContent>

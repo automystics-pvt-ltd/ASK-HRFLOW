@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.deploy-secrets
+figma-source
+uploads/*
+!uploads/.gitkeep
+*.md
+e2e
+tests
+playwright-report
+test-results
+.env
+.cursor
