@@ -208,11 +208,15 @@ async function seed() {
   await seedApprovalWorkflows();
 
   const yearNow = new Date().getFullYear();
+  const yearNext = yearNow + 1;
   const seedHolidays = [
     [`Republic Day`, `${yearNow}-01-26`, 'public'],
     [`Independence Day`, `${yearNow}-08-15`, 'public'],
     [`Gandhi Jayanti`, `${yearNow}-10-02`, 'public'],
     [`Company Foundation Day`, `${yearNow}-06-01`, 'company'],
+    [`Christmas Day`, `${yearNow}-12-25`, 'public'],
+    [`New Year's Day`, `${yearNext}-01-01`, 'public'],
+    [`Republic Day`, `${yearNext}-01-26`, 'public'],
   ];
   for (const [name, date, kind] of seedHolidays) {
     await query(
