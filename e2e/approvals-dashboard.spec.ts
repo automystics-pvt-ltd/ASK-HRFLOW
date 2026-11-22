@@ -33,6 +33,10 @@ test.describe('Admin dashboard approvals', () => {
 
     const before = await page.getByRole('button', { name: /^Approve$/i }).count();
     await page.getByRole('button', { name: /^Approve$/i }).first().click();
+    // Mandatory reason dialog
+    await expect(page.getByRole('heading', { name: /Approval reason/i })).toBeVisible({ timeout: 5_000 });
+    await page.locator('#approval-reason').fill('E2E approved with mandatory comment');
+    await page.getByRole('button', { name: /^Approve$/i }).last().click();
     await expect(page.getByText('Approved').first()).toBeVisible({ timeout: 10_000 });
     await expect
       .poll(async () => page.getByRole('button', { name: /^Approve$/i }).count(), { timeout: 10_000 })
