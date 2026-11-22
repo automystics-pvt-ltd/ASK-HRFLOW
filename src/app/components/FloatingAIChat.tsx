@@ -144,27 +144,47 @@ export function FloatingAIChat({ currentModule }: { currentModule: string }) {
     setError(null);
   };
 
-  const openChat = () => setPanel('open');
+  const toggleChat = useCallback(() => {
+    setPanel((p) => (p === 'closed' || p === 'minimized' ? 'open' : 'closed'));
+  }, []);
+
+  const fabRef = useRef<HTMLButtonElement>(null);
+
+  // Prefer a single native listener (no React onClick) so automation and overlays cannot
+  // double-fire and immediately re-close the panel.
+  useEffect(() => {
+    const el = fabRef.current;
+    if (!el) return;
+    const onActivate = (ev: Event) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      toggleChat();
+    };
+    el.addEventListener('click', onActivate);
+    return () => el.removeEventListener('click', onActivate);
+  }, [toggleChat]);
 
   if (!user || !allowed || !mounted) return null;
 
   const primary = theme.primary || '#1d6bff';
   const accent = theme.accent || '#3cd0f5';
   const brandName = company.name || 'ASK HRFlow';
+  const fabOpen = panel !== 'closed';
 
   const ui = (
     <div
       id="ask-ai-root"
+      data-ask-ai-panel={panel}
       className={cn(
-        'fixed flex flex-col items-end gap-3',
+        'fixed flex flex-col items-end gap-3 pointer-events-none',
         'right-4 bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] md:right-6 md:bottom-6',
       )}
-      style={{ zIndex: 9999 }}
+      style={{ zIndex: 2147483000 }}
     >
       {(panel === 'open' || panel === 'expanded' || panel === 'minimized') && (
         <div
           className={cn(
-            'flex flex-col overflow-hidden border border-border bg-card shadow-[0_16px_48px_-16px_rgba(6,26,82,0.45)] rounded-2xl',
+            'pointer-events-auto flex flex-col overflow-hidden border border-border bg-card shadow-[0_16px_48px_-16px_rgba(6,26,82,0.45)] rounded-2xl',
             panel === 'minimized' && 'w-[min(20rem,calc(100vw-2rem))]',
             panel === 'open' && 'w-[min(24rem,calc(100vw-2rem))] h-[min(32rem,calc(100svh-10rem))]',
             panel === 'expanded' &&
@@ -345,43 +365,49 @@ export function FloatingAIChat({ currentModule }: { currentModule: string }) {
         </div>
       )}
 
-      {panel === 'closed' && (
-        <button
-          type="button"
-          id="ask-ai-fab"
-          title="ASK AI"
-          aria-label="Open ASK AI"
-          className={cn(
-            'ask-ai-fab group relative h-14 w-14 rounded-full text-white',
-            'flex items-center justify-center transition-transform hover:scale-105',
-            'focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary',
-            'cursor-pointer select-none',
-          )}
-          style={{
-            backgroundImage: `linear-gradient(135deg, ${primary} 0%, ${accent} 100%)`,
-            boxShadow: '0 12px 32px -8px rgba(6,26,82,0.55)',
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            openChat();
-          }}
-        >
+      <button
+        ref={fabRef}
+        type="button"
+        id="ask-ai-fab"
+        title={fabOpen ? 'Close ASK AI' : 'ASK AI'}
+        aria-label={fabOpen ? 'Close ASK AI' : 'Open ASK AI'}
+        aria-expanded={fabOpen}
+        data-state={panel}
+        className={cn(
+          'ask-ai-fab group relative h-14 w-14 rounded-full text-white pointer-events-auto',
+          'flex items-center justify-center transition-transform hover:scale-105',
+          'focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary',
+          'cursor-pointer select-none touch-manipulation',
+        )}
+        style={{
+          backgroundImage: `linear-gradient(135deg, ${primary} 0%, ${accent} 100%)`,
+          boxShadow: '0 12px 32px -8px rgba(6,26,82,0.55)',
+          pointerEvents: 'auto',
+        }}
+      >
+        {fabOpen ? (
+          <X className="w-6 h-6 pointer-events-none" aria-hidden />
+        ) : (
           <Sparkles className="w-6 h-6 pointer-events-none" aria-hidden />
-          <span
-            className="absolute -top-9 right-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-[10px] font-semibold tracking-wide uppercase px-2 py-1 rounded-md bg-foreground text-background shadow-md whitespace-nowrap pointer-events-none"
-          >
-            ASK AI
-          </span>
-        </button>
-      )}
+        )}
+        <span
+          className="absolute -top-9 right-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-[10px] font-semibold tracking-wide uppercase px-2 py-1 rounded-md bg-foreground text-background shadow-md whitespace-nowrap pointer-events-none"
+        >
+          ASK AI
+        </span>
+      </button>
 
       <style>{`
         @keyframes ask-ai-pulse {
           0%, 100% { box-shadow: 0 12px 32px -8px rgba(6,26,82,0.55), 0 0 0 0 rgba(60,208,245,0.4); }
           50% { box-shadow: 0 12px 32px -8px rgba(6,26,82,0.55), 0 0 0 12px rgba(60,208,245,0); }
         }
-        .ask-ai-fab {
+        #ask-ai-fab.ask-ai-fab {
           animation: ask-ai-pulse 2.8s ease-in-out infinite;
+          pointer-events: auto !important;
+        }
+        #ask-ai-root > * {
+          pointer-events: auto;
         }
       `}</style>
     </div>
