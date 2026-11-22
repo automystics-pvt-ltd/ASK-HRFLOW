@@ -1,17 +1,15 @@
 services:
-  mysql:
-    image: mysql:8
+  postgres:
+    image: postgres:16
     restart: unless-stopped
     ports:
-      - "3306:3306"
+      - "5432:5432"
     environment:
-      MYSQL_ROOT_PASSWORD: hrflow
-      MYSQL_DATABASE: hrflow
-      MYSQL_USER: hrflow
-      MYSQL_PASSWORD: hrflow
+      POSTGRES_USER: hrflow
+      POSTGRES_PASSWORD: hrflow
+      POSTGRES_DB: hrflow
     volumes:
-      - hrflow_mysql_data:/var/lib/mysql
-    command: --default-authentication-plugin=mysql_native_password
+      - hrflow_pg_data:/var/lib/postgresql/data
 
 volumes:
-  hrflow_mysql_data:
+  hrflow_pg_data:

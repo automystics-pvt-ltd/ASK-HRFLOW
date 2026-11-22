@@ -32,12 +32,8 @@ export type EmployeeRecord = {
   skills?: string[];
 };
 
-export const mockEmployees: EmployeeRecord[] = [
-  { id: 1, name: 'Sarah Johnson', email: 'sarah.johnson@company.com', department: 'Engineering', position: 'Senior Developer', status: 'Active', joinDate: '2022-03-15', salary: 95000, location: 'New York', country: 'United States', avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b1d3?w=40&h=40&fit=crop&crop=face', manager: 'John Smith', skills: ['React', 'Node.js'] },
-  { id: 2, name: 'Mike Chen', email: 'mike.chen@company.com', department: 'Product', position: 'Product Manager', status: 'Active', joinDate: '2021-08-22', salary: 110000, location: 'San Francisco', country: 'United States', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=40&h=40&fit=crop&crop=face', skills: ['Product Strategy'] },
-  { id: 3, name: 'Lisa Brown', email: 'lisa.brown@company.com', department: 'Design', position: 'UX Designer', status: 'On Leave', joinDate: '2023-01-10', salary: 85000, location: 'London', country: 'United Kingdom', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=40&h=40&fit=crop&crop=face', skills: ['Figma'] },
-  { id: 4, name: 'David Wilson', email: 'david.wilson@company.com', department: 'Sales', position: 'Sales Executive', status: 'Active', joinDate: '2020-11-05', salary: 75000, location: 'Dubai', country: 'United Arab Emirates', avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop&crop=face', skills: ['CRM'] },
-];
+/** Legacy type placeholder — list data comes from `/api/employees`. */
+export const mockEmployees: EmployeeRecord[] = [];
 
 const departments = ['All', 'Engineering', 'Product', 'Design', 'Sales', 'Marketing', 'HR'];
 const statuses = ['All', 'Active', 'On Leave', 'Inactive'];
@@ -53,7 +49,7 @@ function mapRow(row: Record<string, unknown>): EmployeeRecord {
     position: String(row.position ?? ''),
     status: String(row.status ?? 'Active'),
     joinDate: String(row.join_date ?? row.joinDate ?? '2020-01-01').slice(0, 10),
-    salary: Number(row.salary ?? 0),
+    salary: row.salary == null ? 0 : Number(row.salary),
     location: String(row.location ?? ''),
     country: String(row.country ?? 'United States'),
     avatar: row.avatar ? String(row.avatar) : undefined,
@@ -65,7 +61,7 @@ function mapRow(row: Record<string, unknown>): EmployeeRecord {
 export function EmployeeManagement() {
   const { can } = useRole();
   const { currencyFor } = useCurrency();
-  const [employees, setEmployees] = useState<EmployeeRecord[]>(mockEmployees);
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [searchTerm, setSearchTerm] = useState(() => { const q = sessionStorage.getItem('global-search') ?? ''; sessionStorage.removeItem('global-search'); return q; });
   const [selectedDepartment, setSelectedDepartment] = useState('All');
   const [selectedStatus, setSelectedStatus] = useState('All');

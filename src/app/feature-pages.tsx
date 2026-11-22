@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { CurrencyProvider, useCurrency, formatMoney, currencies } from './lib/currency';
-import { mockEmployees } from './components/EmployeeManagement';
+import type { EmployeeRecord } from './components/EmployeeManagement';
+import { employeesApi } from './lib/api';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import { useRole } from './lib/roles';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
@@ -31,7 +32,26 @@ function PayrollCurrencyAdmin() {
   const { role } = useRole();
   const { currencyFor, setCurrency, isOverridden } = useCurrency();
   const isAdmin = role === 'admin';
-  const rows = [SELF, ...mockEmployees];
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  useEffect(() => {
+    employeesApi.list().then(({ employees: rows }) => {
+      setEmployees(
+        rows.map((r) => ({
+          id: Number(r.id),
+          name: String(r.name),
+          email: String(r.email),
+          department: String(r.department),
+          position: String(r.position ?? ''),
+          status: String(r.status),
+          joinDate: String(r.joinDate ?? r.join_date).slice(0, 10),
+          salary: Number(r.salary ?? 0),
+          location: String(r.location ?? ''),
+          country: String(r.country ?? 'United States'),
+        })),
+      );
+    }).catch(() => {});
+  }, []);
+  const rows = [SELF, ...employees];
   return (
     <Card className="border border-border rounded-xl">
       <CardHeader>

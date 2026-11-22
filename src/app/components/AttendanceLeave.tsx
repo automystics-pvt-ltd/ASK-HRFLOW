@@ -9,7 +9,7 @@ import { Timesheet } from './Timesheet';
 import { toast } from 'sonner';
 import { useAccess } from '../lib/access';
 import { useRole } from '../lib/roles';
-import { leaveApi } from '../lib/api';
+import { attendanceApi, leaveApi } from '../lib/api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Label } from './ui/label';
 import { Input } from './ui/input';
@@ -33,14 +33,7 @@ type LeaveReq = {
   decidedBy?: string;
 };
 
-const mockAttendanceData = [
-  { date: '2024-01-15', checkIn: '09:00', checkOut: '17:30', status: 'Present', hours: 8.5, location: 'Office' },
-  { date: '2024-01-14', checkIn: '09:15', checkOut: '17:45', status: 'Present', hours: 8.5, location: 'Office' },
-];
-
-const mockLeaveRequests: LeaveReq[] = [
-  { id: 1, userId: 'u-emp2', employee: 'Sarah Johnson', type: 'Vacation', startDate: '2026-12-15', endDate: '2026-12-21', days: 5, status: 'Pending', reason: 'Family vacation', avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b1d3?w=40&h=40&fit=crop&crop=face' },
-];
+type AttendanceRow = { date: string; checkIn: string; checkOut: string; status: string; hours: number; location: string };
 
 const leaveTypes = [
   { value: 'vacation', label: 'Vacation', icon: Plane },
@@ -48,7 +41,6 @@ const leaveTypes = [
   { value: 'personal', label: 'Personal', icon: Coffee },
 ];
 
-const mockLeaveBalance = { vacation: { used: 8, total: 25 }, sick: { used: 3, total: 10 }, personal: { used: 2, total: 5 }, maternity: { used: 0, total: 90 } };
 
 function workingDays(a: string, b: string) {
   let n = 0;
@@ -60,16 +52,38 @@ export function AttendanceLeave() {
   const { can } = useRole();
   const acc = useAccess();
   const me = acc.user!;
-  const [requests, setRequests] = useState<LeaveReq[]>(mockLeaveRequests);
+  const [requests, setRequests] = useState<LeaveReq[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceRow[]>([]);
+  const [leaveBalance, setLeaveBalance] = useState<Record<string, { used: number; total: number }>>({});
   const [form, setForm] = useState({ type: '', start: '', end: '', reason: '' });
   const [isLeaveRequestOpen, setIsLeaveRequestOpen] = useState(false);
   const [selectedTab, setSelectedTab] = useState('attendance');
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
 
   useEffect(() => {
-    leaveApi.list().then(({ requests: rows }) => {
-      if (rows?.length) setRequests(rows as LeaveReq[]);
-    }).catch(() => {});
+    leaveApi
+      .list()
+      .then(({ requests: rows }) => setRequests((rows ?? []) as LeaveReq[]))
+      .catch(() => toast.error('Could not load leave requests'));
+    attendanceApi
+      .list()
+      .then(({ attendance: rows }) => {
+        setAttendance(
+          (rows ?? []).map((r) => ({
+            date: String(r.date ?? r.workDate).slice(0, 10),
+            checkIn: r.checkIn ? new Date(String(r.checkIn)).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '—',
+            checkOut: r.checkOut ? new Date(String(r.checkOut)).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '—',
+            status: String(r.status ?? 'Present'),
+            hours: Number(r.hours ?? 0),
+            location: String(r.location ?? 'Office'),
+          })),
+        );
+      })
+      .catch(() => {});
+    leaveApi
+      .balances()
+      .then(({ balances }) => setLeaveBalance(balances))
+      .catch(() => {});
   }, []);
 
   const visibleRequests = can.canApproveLeave ? requests : requests.filter((r) => r.userId === me.id);
@@ -82,15 +96,14 @@ export function AttendanceLeave() {
     const days = workingDays(form.start, form.end);
     const label = leaveTypes.find((t) => t.value === form.type)!.label;
     try {
-      await leaveApi.create({ type: label, startDate: form.start, endDate: form.end, days, reason: form.reason });
-      setRequests((r) => [{ id: Date.now(), userId: me.id, employee: me.name, type: label, startDate: form.start, endDate: form.end, days, status: 'Pending', reason: form.reason }, ...r]);
+      await leaveApi.create({ type: label, startDate: form.start, endDate: form.end, days, reason: form.reason, leaveTypeCode: form.type });
+      const { requests: rows } = await leaveApi.list();
+      setRequests((rows ?? []) as LeaveReq[]);
       toast.success('Leave request submitted');
       setIsLeaveRequestOpen(false);
       setForm({ type: '', start: '', end: '', reason: '' });
-    } catch {
-      setRequests((r) => [{ id: Date.now(), userId: me.id, employee: me.name, type: label, startDate: form.start, endDate: form.end, days, status: 'Pending', reason: form.reason }, ...r]);
-      toast.success('Leave request submitted (offline)');
-      setIsLeaveRequestOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to submit leave request');
     }
   };
 
@@ -120,9 +133,19 @@ export function AttendanceLeave() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: 'Attendance Rate', value: '94.2%', icon: TrendingUp },
-          { label: 'Hours Worked', value: '168h', icon: Clock },
-          { label: 'Avg Hours/Day', value: '8.4h', icon: CalendarDays },
+          {
+            label: 'Attendance Rate',
+            value: attendance.length
+              ? `${Math.round((attendance.filter((a) => a.status === 'Present').length / attendance.length) * 100)}%`
+              : '—',
+            icon: TrendingUp,
+          },
+          { label: 'Hours Worked', value: `${Math.round(attendance.reduce((s, a) => s + a.hours, 0))}h`, icon: Clock },
+          {
+            label: 'Avg Hours/Day',
+            value: attendance.length ? `${(attendance.reduce((s, a) => s + a.hours, 0) / attendance.length).toFixed(1)}h` : '—',
+            icon: CalendarDays,
+          },
           { label: 'Pending Leave', value: String(visibleRequests.filter((r) => r.status === 'Pending').length), icon: AlertCircle },
         ].map((s) => (
           <Card key={s.label} className="border border-border rounded-xl">
@@ -145,7 +168,8 @@ export function AttendanceLeave() {
           <Card className="border border-border rounded-xl">
             <CardHeader><CardTitle className="flex items-center gap-2"><Clock className="w-5 h-5" />Recent Attendance</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              {mockAttendanceData.map((record, index) => (
+              {attendance.length === 0 && <p className="text-sm text-muted-foreground">No attendance records yet.</p>}
+              {attendance.map((record, index) => (
                 <div key={index} className="flex justify-between p-4 rounded-lg border border-border/50">
                   <AttendanceRecordRow record={record} />
                   <Badge>{record.status}</Badge>
@@ -158,7 +182,8 @@ export function AttendanceLeave() {
           <Card className="border border-border rounded-xl">
             <CardHeader><CardTitle>Leave Balance</CardTitle></CardHeader>
             <CardContent className="grid md:grid-cols-4 gap-4">
-              {Object.entries(mockLeaveBalance).map(([type, bal]) => (
+              {Object.keys(leaveBalance).length === 0 && <p className="text-sm text-muted-foreground col-span-full">No leave balances loaded.</p>}
+              {Object.entries(leaveBalance).map(([type, bal]) => (
                 <div key={type} className="p-4 border rounded-lg">
                   <p className="font-medium capitalize mb-2">{type}</p>
                   <Progress value={(bal.used / bal.total) * 100} />
