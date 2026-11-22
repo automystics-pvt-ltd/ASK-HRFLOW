@@ -885,6 +885,9 @@ export function SettingsPage() {
                   </div>
                 ))}
               </div>
+              <p className="text-xs text-muted-foreground">
+                Primary and secondary color the side navigation panel. Accent highlights the active menu item.
+              </p>
               <div className="space-y-1.5">
                 <Label>Mode</Label>
                 <Select

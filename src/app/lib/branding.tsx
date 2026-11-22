@@ -33,13 +33,19 @@ const BrandingContext = createContext<BrandingState>(defaults);
 
 function applyThemeVars(theme: BrandingTheme) {
   const root = document.documentElement;
-  if (theme.primary) root.style.setProperty('--primary', theme.primary);
-  if (theme.secondary) root.style.setProperty('--secondary', theme.secondary);
-  if (theme.accent) root.style.setProperty('--accent', theme.accent);
-  // Also set common HSL-free fallbacks used by the shell
-  if (theme.primary) root.style.setProperty('--brand-primary', theme.primary);
-  if (theme.secondary) root.style.setProperty('--brand-secondary', theme.secondary);
-  if (theme.accent) root.style.setProperty('--brand-accent', theme.accent);
+  const primary = theme.primary || '#1e3a5f';
+  const secondary = theme.secondary || '#3b82f6';
+  const accent = theme.accent || '#0ea5e9';
+  root.style.setProperty('--primary', primary);
+  root.style.setProperty('--secondary', secondary);
+  root.style.setProperty('--accent', accent);
+  root.style.setProperty('--brand-primary', primary);
+  root.style.setProperty('--brand-secondary', secondary);
+  root.style.setProperty('--brand-accent', accent);
+  // Side navigation panel follows admin theme
+  root.style.setProperty('--sidebar-from', primary);
+  root.style.setProperty('--sidebar-to', secondary);
+  root.style.setProperty('--sidebar-accent', accent);
 }
 
 export function BrandProvider({ children }: { children: React.ReactNode }) {
