@@ -6,7 +6,7 @@ import { Switch } from './ui/switch';
 import { toast } from 'sonner';
 import { useAccess, roleLabels } from '../lib/access';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
-import { BrandLockup, HeaderBrand } from './Brand';
+import { BrandLockup } from './Brand';
 import alviProfile from '../../assets/alvi-profile.jpg';
 import {
   Home,
@@ -142,9 +142,7 @@ export function DashboardLayout({ activeTab, setActiveTab, isDarkMode, toggleDar
               </SheetContent>
             </Sheet>
 
-            {/* Top corner: uploaded logo + company name (sidebar also shows on md+) */}
-            <HeaderBrand className="shrink-0" />
-            <h1 className="text-base sm:text-lg lg:text-xl font-medium truncate shrink-0 max-w-[36%] sm:max-w-none">
+            <h1 className="text-base sm:text-lg lg:text-xl font-medium truncate shrink-0 max-w-[40%] sm:max-w-none">
               {pageTitle}
             </h1>
 
