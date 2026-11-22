@@ -91,8 +91,30 @@ recruitmentRouter.get('/candidates', requireAuth, requirePermission('recruitment
 
 export const performanceRouter = Router();
 performanceRouter.get('/reviews', requireAuth, requirePermission('performance', 'read'), async (_req, res) => {
-  const rows = await query('SELECT * FROM performance_reviews WHERE tenant_id = $1', [DEFAULT_TENANT]);
-  res.json({ reviews: rows });
+  const rows = await query(
+    `SELECT pr.*, e.name AS employee_name, e.position, e.department
+     FROM performance_reviews pr
+     LEFT JOIN employees e ON e.id = pr.employee_id
+     WHERE pr.tenant_id = $1
+     ORDER BY pr.created_at DESC`,
+    [DEFAULT_TENANT],
+  );
+  res.json({
+    reviews: rows.map((r) => ({
+      id: r.id,
+      employeeId: r.employee_id,
+      employeeName: r.employee_name,
+      position: r.position,
+      department: r.department,
+      reviewerId: r.reviewer_id,
+      periodLabel: r.period_label,
+      rating: r.rating != null ? Number(r.rating) : null,
+      score: r.rating != null ? Math.round(Number(r.rating) * 20) : null,
+      summary: r.summary,
+      status: r.status,
+      createdAt: r.created_at,
+    })),
+  });
 });
 performanceRouter.get('/goals', requireAuth, requirePermission('performance', 'read'), async (_req, res) => {
   const rows = await query('SELECT * FROM goals WHERE tenant_id = $1', [DEFAULT_TENANT]);

@@ -153,7 +153,29 @@ export function AttendanceLeave() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div><h1 className="text-2xl font-medium">Attendance & Leave</h1><p className="text-muted-foreground">Track attendance and manage leave requests</p></div>
         <div className="flex gap-2">
-          {acc.can('attendance', 'export') && <Button variant="outline" className="gap-2"><Download className="w-4 h-4" />Export Report</Button>}
+          {acc.can('attendance', 'export') && (
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => {
+                const header = 'Date,Check In,Check Out,Status,Hours,Location';
+                const lines = attendance.map((a) =>
+                  [a.date, a.checkIn, a.checkOut, a.status, a.hours, a.locationAddress || a.location]
+                    .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+                    .join(','),
+                );
+                const csv = [header, ...lines].join('\n');
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+                a.download = 'attendance-report.csv';
+                a.click();
+                toast.success('Attendance report exported');
+              }}
+            >
+              <Download className="w-4 h-4" />
+              Export Report
+            </Button>
+          )}
           <Dialog open={isLeaveRequestOpen} onOpenChange={setIsLeaveRequestOpen}>
             <DialogTrigger asChild><Button className="gap-2"><Plus className="w-4 h-4" />Request Leave</Button></DialogTrigger>
             <DialogContent>

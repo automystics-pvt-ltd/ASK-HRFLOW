@@ -141,10 +141,12 @@ router.get('/inbox', requireAuth, async (req, res) => {
 
   const rows = await query(
     `SELECT ar.*, aw.name AS workflow_name,
-            s.approver_role, s.approver_user_id, s.label AS step_label
+            s.approver_role, s.approver_user_id, s.label AS step_label,
+            u.name AS requester_name
      FROM approval_requests ar
      JOIN approval_workflows aw ON aw.id = ar.workflow_id
      JOIN approval_steps s ON s.workflow_id = ar.workflow_id AND s.step_order = ar.current_step
+     LEFT JOIN users u ON u.id = ar.requester_id
      WHERE ar.tenant_id = $1 AND ar.status = 'pending'
        AND (
          (s.approver_user_id IS NOT NULL AND s.approver_user_id = $2)
@@ -156,20 +158,42 @@ router.get('/inbox', requireAuth, async (req, res) => {
   );
 
   res.json({
-    inbox: rows.map((r) => ({
-      id: r.id,
-      workflowId: r.workflow_id,
-      workflowName: r.workflow_name,
-      moduleKey: r.module_key,
-      entityType: r.entity_type,
-      entityId: r.entity_id,
-      requesterId: r.requester_id,
-      status: r.status,
-      currentStep: r.current_step,
-      payload: r.payload,
-      stepLabel: r.step_label,
-      createdAt: r.created_at,
-    })),
+    inbox: rows.map((r) => {
+      let payload: Record<string, unknown> | null = null;
+      if (r.payload != null) {
+        if (typeof r.payload === 'object') payload = r.payload as Record<string, unknown>;
+        else if (typeof r.payload === 'string') {
+          try {
+            payload = JSON.parse(r.payload) as Record<string, unknown>;
+          } catch {
+            payload = null;
+          }
+        }
+      }
+      const typeLabel =
+        (payload?.type != null ? String(payload.type) : null) ||
+        (r.module_key === 'leave'
+          ? 'Leave Request'
+          : r.module_key === 'timesheet'
+            ? 'Timesheet'
+            : String(r.workflow_name ?? r.module_key));
+      return {
+        id: r.id,
+        workflowId: r.workflow_id,
+        workflowName: r.workflow_name,
+        moduleKey: r.module_key,
+        entityType: r.entity_type,
+        entityId: r.entity_id,
+        requesterId: r.requester_id,
+        requesterName: r.requester_name ?? r.requester_id,
+        typeLabel,
+        status: r.status,
+        currentStep: r.current_step,
+        payload,
+        stepLabel: r.step_label,
+        createdAt: r.created_at,
+      };
+    }),
   });
 });
 

@@ -60,7 +60,13 @@ function Workspace() {
       case 'audit': return <AuditLogs />;
       case 'settings': return <SettingsPage />;
       default:
-        return role === 'admin' ? <DashboardOverview /> : role === 'hr' ? <HRDashboard go={setActiveTab} /> : <EmployeeDashboard go={setActiveTab} />;
+        return role === 'admin' ? (
+          <DashboardOverview go={setActiveTab} />
+        ) : role === 'hr' ? (
+          <HRDashboard go={setActiveTab} />
+        ) : (
+          <EmployeeDashboard go={setActiveTab} />
+        );
     }
   };
 

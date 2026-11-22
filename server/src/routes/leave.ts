@@ -225,6 +225,15 @@ router.post('/:id/approve', requireAuth, requirePermission('attendance', 'approv
     );
   }
 
+  // Keep approval workflow inbox in sync when leave is decided from Attendance UI
+  await query(
+    `UPDATE approval_requests
+     SET status = $1, updated_at = NOW()
+     WHERE tenant_id = $2 AND module_key = 'leave' AND entity_type = 'leave_request'
+       AND entity_id = $3 AND status = 'pending'`,
+    [approve ? 'approved' : 'rejected', DEFAULT_TENANT, String(req.params.id)],
+  );
+
   const u = await ensureAppUser(req);
   if (u) await writeAudit(u.id, u.name, 'Leave decision', `${status} leave #${req.params.id}`, String(req.params.id));
   res.json({ ok: true });
