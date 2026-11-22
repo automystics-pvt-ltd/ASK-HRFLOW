@@ -25,8 +25,7 @@ async function syncAttendanceDay(userId: string, workDate: string) {
   await query(
     `INSERT INTO attendance_days (tenant_id, user_id, work_date, check_in, check_out, status, hours)
      VALUES ($1,$2,$3,$4,$5,$6,$7)
-     ON CONFLICT (tenant_id, user_id, work_date)
-     DO UPDATE SET check_in = EXCLUDED.check_in, check_out = EXCLUDED.check_out, hours = EXCLUDED.hours, status = EXCLUDED.status`,
+     ON DUPLICATE KEY UPDATE check_in = VALUES(check_in), check_out = VALUES(check_out), hours = VALUES(hours), status = VALUES(status)`,
     [
       DEFAULT_TENANT,
       userId,

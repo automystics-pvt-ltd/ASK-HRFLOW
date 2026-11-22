@@ -4,7 +4,7 @@
 
 - **Frontend:** Vite 6 + React 18 + TypeScript + Tailwind/shadcn (Figma Make UI preserved)
 - **Backend:** Express 4 + TypeScript (`tsx` runtime) under `server/src/`
-- **Database:** PostgreSQL 16 (`pg` driver), multi-tenant column `tenant_id` (default `t-default`)
+- **Database:** MySQL 8 (`mysql2` driver), multi-tenant column `tenant_id` (default `t-default`)
 - **Auth:** JWT in httpOnly cookie `hrflow_token`, bcrypt passwords
 - **API docs:** Swagger UI at `/api/docs`
 
@@ -17,13 +17,13 @@ flowchart LR
   Express --> AuthMW["authMiddleware + attachUser"]
   AuthMW --> RBAC["requirePermission / requireSelfOrPermission"]
   RBAC --> Routes
-  Routes --> PG[(PostgreSQL)]
+  Routes --> MySQL[(MySQL)]
 ```
 
 ## RBAC
 
 - **Role templates** in `role_permissions` (seeded from frontend defaults; HR gets `access` read/create/update)
-- **User overrides** in `user_permissions` (JSONB action arrays per module)
+- **User overrides** in `user_permissions` (JSON action arrays per module)
 - **Admin** always has full module access (computed, not stored)
 - Middleware: `requirePermission(module, action)`, `requireSelfOrPermission` for employee-linked records
 
@@ -50,7 +50,7 @@ flowchart LR
 ## Scripts
 
 - `npm run dev` — API + Vite
-- `npm run db:seed` — apply `server/schema.pg.sql` + demo data
+- `npm run db:seed` — apply `server/schema.sql` + demo data
 - `npm start` — production API (serves `dist/`)
 
 ## Demo users

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { DEFAULT_TENANT, query, queryOne } from '../db.js';
+import { DEFAULT_TENANT, insert, query, queryOne } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
 import { userCan } from '../lib/users.js';
@@ -36,34 +36,41 @@ router.get('/:id', requireAuth, requirePermission('attendance', 'read'), async (
 
 router.post('/', requireAuth, requirePermission('attendance', 'create'), async (req, res) => {
   const ws = req.body.weekStart || weekStart();
-  const rows = await query<{ id: number }>(
-    `INSERT INTO timesheets (tenant_id, user_id, week_start, status)
-     VALUES ($1,$2,$3,'draft')
-     ON CONFLICT (tenant_id, user_id, week_start) DO UPDATE SET status = timesheets.status
-     RETURNING id`,
+  const existing = await queryOne<{ id: number }>(
+    'SELECT id FROM timesheets WHERE tenant_id = $1 AND user_id = $2 AND week_start = $3',
     [DEFAULT_TENANT, req.user!.sub, ws],
   );
-  res.status(201).json({ id: rows[0].id });
+  if (existing) {
+    return res.status(201).json({ id: existing.id });
+  }
+  const id = await insert(
+    `INSERT INTO timesheets (tenant_id, user_id, week_start, status) VALUES ($1,$2,$3,'draft')`,
+    [DEFAULT_TENANT, req.user!.sub, ws],
+  );
+  res.status(201).json({ id });
 });
 
 router.post('/:id/entries', requireAuth, requirePermission('attendance', 'create'), async (req, res) => {
   const sheet = await queryOne('SELECT * FROM timesheets WHERE id = $1', [req.params.id]);
   if (!sheet || sheet.user_id !== req.user!.sub) return res.status(404).json({ error: 'Not found' });
-  if (['submitted', 'approved', 'locked'].includes(sheet.status)) return res.status(400).json({ error: 'Timesheet is locked' });
+  if (['submitted', 'approved', 'locked'].includes(sheet.status as string)) {
+    return res.status(400).json({ error: 'Timesheet is locked' });
+  }
 
   const { workDate, hours, notes } = req.body || {};
   await query(
     `INSERT INTO timesheet_entries (tenant_id, timesheet_id, work_date, hours, notes)
      VALUES ($1,$2,$3,$4,$5)
-     ON CONFLICT (timesheet_id, work_date) DO UPDATE SET hours = EXCLUDED.hours, notes = EXCLUDED.notes`,
+     ON DUPLICATE KEY UPDATE hours = VALUES(hours), notes = VALUES(notes)`,
     [DEFAULT_TENANT, req.params.id, workDate, hours ?? 0, notes ?? null],
   );
-  const [{ total }] = await query<{ total: string }>(
-    'SELECT COALESCE(SUM(hours),0)::text AS total FROM timesheet_entries WHERE timesheet_id = $1',
+  const [sumRow] = await query<{ total: number | string }>(
+    'SELECT COALESCE(SUM(hours),0) AS total FROM timesheet_entries WHERE timesheet_id = $1',
     [req.params.id],
   );
+  const total = Number(sumRow?.total ?? 0);
   await query('UPDATE timesheets SET total_hours = $1 WHERE id = $2', [total, req.params.id]);
-  res.json({ ok: true, totalHours: Number(total) });
+  res.json({ ok: true, totalHours: total });
 });
 
 router.post('/:id/submit', requireAuth, requirePermission('attendance', 'create'), async (req, res) => {
@@ -76,7 +83,7 @@ router.post('/:id/submit', requireAuth, requirePermission('attendance', 'create'
 router.post('/:id/approve', requireAuth, requirePermission('attendance', 'approve'), async (req, res) => {
   const { approve, comment } = req.body || {};
   await query(
-    `UPDATE timesheets SET status = $1::timesheet_status, reviewed_by = $2, reviewed_at = NOW(), review_comment = $3 WHERE id = $4`,
+    `UPDATE timesheets SET status = $1, reviewed_by = $2, reviewed_at = NOW(), review_comment = $3 WHERE id = $4`,
     [approve ? 'approved' : 'rejected', req.user!.sub, comment ?? null, req.params.id],
   );
   res.json({ ok: true });

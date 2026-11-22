@@ -2,7 +2,7 @@
 
 ## Completed
 
-- [x] PostgreSQL schema (`server/schema.pg.sql`) with tenants, RBAC, HR domain tables, indexes/FKs
+- [x] MySQL schema (`server/schema.sql`) with tenants, RBAC, HR domain tables, indexes/FKs
 - [x] TypeScript Express server (`server/src/`) via `tsx`
 - [x] Auth (JWT cookie), login audit, `me` with computed permissions
 - [x] RBAC middleware aligned with `access.tsx` module/action model
@@ -16,7 +16,7 @@
 - [x] Stub routes: payroll, recruitment, performance, documents (multer → `uploads/`), settings, reports, shifts
 - [x] Swagger at `/api/docs`
 - [x] Seed script (`npm run db:seed`) — demo users + sample HR data
-- [x] Docker Compose → Postgres 16; `.env.example` updated
+- [x] Docker Compose → MySQL 8; `.env.example` updated
 - [x] Frontend API client (`src/app/lib/api.ts`) and wiring for dashboard, employees, attendance/leave/timesheet, access
 
 ## Verified locally
@@ -34,5 +34,5 @@
 - [ ] Pagination UI for employee list (API supports `page`/`limit`)
 - [ ] Zod validation on all write endpoints (partially implicit)
 - [ ] Remove legacy MySQL files under `server/*.js` (kept for reference; not used by scripts)
-- [ ] Production migrations tool (Flyway/node-pg-migrate) instead of full schema replay on seed
+- [ ] Production migrations tool instead of full schema replay on seed
 - [ ] Tenant resolution middleware (currently fixed `t-default`)

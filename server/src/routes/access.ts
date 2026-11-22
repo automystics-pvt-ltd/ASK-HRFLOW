@@ -34,9 +34,33 @@ router.get('/permissions', requireAuth, async (_req, res) => {
   };
   for (const r of rows) {
     const actions = Array.isArray(r.actions) ? r.actions : JSON.parse(String(r.actions));
-    roleTemplates[r.role as Role][r.module_id] = actions;
+    roleTemplates[r.role as Role][r.module_id as string] = actions;
   }
   res.json({ roleTemplates });
+});
+
+router.put('/permissions/:role', requireAuth, attachUser, requirePermission('access', 'update'), async (req, res) => {
+  const me = await ensureAppUser(req);
+  if (me?.role !== 'admin') return res.status(403).json({ error: 'Only admin can edit role templates' });
+  const role = req.params.role as Role;
+  if (!['admin', 'hr', 'employee'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  if (role === 'admin') return res.status(400).json({ error: 'Admin permissions are fixed' });
+
+  const permissions = (req.body?.permissions ?? req.body) as PermissionSet;
+  if (!permissions || typeof permissions !== 'object') return res.status(400).json({ error: 'Missing permissions' });
+
+  await query('DELETE FROM role_permissions WHERE tenant_id = $1 AND role = $2', [DEFAULT_TENANT, role]);
+  for (const [moduleId, actions] of Object.entries(permissions)) {
+    if ((actions as Action[]).length) {
+      await query(
+        `INSERT INTO role_permissions (tenant_id, role, module_id, actions)
+         VALUES ($1, $2, $3, $4)`,
+        [DEFAULT_TENANT, role, moduleId, JSON.stringify(actions)],
+      );
+    }
+  }
+  if (me) await writeAudit(me.id, me.name, 'Role template updated', `Updated ${role} template`);
+  res.json({ ok: true });
 });
 
 router.patch('/users/:id', requireAuth, attachUser, requirePermission('access', 'update'), async (req, res) => {
@@ -49,19 +73,21 @@ router.patch('/users/:id', requireAuth, attachUser, requirePermission('access', 
   if (target.role === 'admin' && me?.role !== 'admin') return res.status(403).json({ error: 'Only admin can change admin accounts' });
   if (req.params.id === req.user!.sub && active === false) return res.status(400).json({ error: 'Cannot deactivate yourself' });
 
-  if (role) await query('UPDATE users SET role = $1::user_role WHERE id = $2', [role, req.params.id]);
-  if (typeof active === 'boolean') await query('UPDATE users SET active = $1 WHERE id = $2', [active, req.params.id]);
-  if (departmentAccess) await query('UPDATE users SET department_access = $1::jsonb WHERE id = $2', [
-    JSON.stringify(departmentAccess),
-    req.params.id,
-  ]);
+  if (role) await query('UPDATE users SET role = $1 WHERE id = $2', [role, req.params.id]);
+  if (typeof active === 'boolean') await query('UPDATE users SET active = $1 WHERE id = $2', [active ? 1 : 0, req.params.id]);
+  if (departmentAccess) {
+    await query('UPDATE users SET department_access = $1 WHERE id = $2', [
+      JSON.stringify(departmentAccess),
+      req.params.id,
+    ]);
+  }
 
   if (permissions && target.role !== 'admin') {
     await query('DELETE FROM user_permissions WHERE user_id = $1', [req.params.id]);
     for (const [moduleId, actions] of Object.entries(permissions as PermissionSet)) {
       if ((actions as Action[]).length) {
         await query(
-          'INSERT INTO user_permissions (tenant_id, user_id, module_id, actions) VALUES ($1,$2,$3,$4::jsonb)',
+          'INSERT INTO user_permissions (tenant_id, user_id, module_id, actions) VALUES ($1,$2,$3,$4)',
           [DEFAULT_TENANT, req.params.id, moduleId, JSON.stringify(actions)],
         );
       }
@@ -92,7 +118,7 @@ router.post('/users', requireAuth, attachUser, requirePermission('access', 'crea
 
   await query(
     `INSERT INTO users (id, tenant_id, name, email, password_hash, role, department, active, department_access)
-     VALUES ($1,$2,$3,$4,$5,$6::user_role,$7,true,$8::jsonb)`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,1,$8)`,
     [id, DEFAULT_TENANT, name.trim(), email.trim().toLowerCase(), hash, role, department, JSON.stringify(deptAccess)],
   );
 

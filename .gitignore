@@ -5,5 +5,8 @@ dist/
 .DS_Store
 figma-source/
 .deploy-secrets/
-uploads/
 .vite/
+uploads/
+coverage/
+playwright-report/
+test-results/

@@ -1,9 +1,10 @@
 import { Router } from 'express';
-import { DEFAULT_TENANT, query, queryOne } from '../db.js';
+import { DEFAULT_TENANT, insert, query, queryOne } from '../db.js';
 import { attachUser, requireAuth } from '../middleware/auth.js';
 import { ensureAppUser, requirePermission } from '../middleware/rbac.js';
 import { userCan } from '../lib/users.js';
 import { writeAudit } from '../lib/audit.js';
+import { isoDate } from '../lib/dates.js';
 
 const router = Router();
 
@@ -27,7 +28,7 @@ async function overlaps(userId: string, start: string, end: string, excludeId?: 
 }
 
 router.get('/types', requireAuth, async (_req, res) => {
-  const rows = await query('SELECT * FROM leave_types WHERE tenant_id = $1 AND active ORDER BY name', [DEFAULT_TENANT]);
+  const rows = await query('SELECT * FROM leave_types WHERE tenant_id = $1 AND active = 1 ORDER BY name', [DEFAULT_TENANT]);
   res.json({ types: rows });
 });
 
@@ -65,8 +66,8 @@ router.get('/', requireAuth, requirePermission('attendance', 'read'), async (req
       userId: r.user_id,
       employee: r.employee_name,
       type: r.type,
-      startDate: String(r.start_date).slice(0, 10),
-      endDate: String(r.end_date).slice(0, 10),
+      startDate: isoDate(r.start_date),
+      endDate: isoDate(r.end_date),
       days: Number(r.days),
       status: r.status,
       reason: r.reason,
@@ -95,7 +96,7 @@ router.post('/', requireAuth, requirePermission('attendance', 'create'), async (
 
   if (lt) {
     const year = new Date(startDate).getFullYear();
-    const bal = await queryOne<{ allocated: string; used: string }>(
+    const bal = await queryOne<{ allocated: string | number; used: string | number }>(
       'SELECT allocated, used FROM leave_balances WHERE tenant_id = $1 AND user_id = $2 AND leave_type_id = $3 AND year = $4',
       [DEFAULT_TENANT, req.user!.sub, lt.id, year],
     );
@@ -104,12 +105,12 @@ router.post('/', requireAuth, requirePermission('attendance', 'create'), async (
     }
   }
 
-  const rows = await query<{ id: number }>(
+  const id = await insert(
     `INSERT INTO leave_requests (tenant_id, user_id, employee_name, leave_type_id, type, start_date, end_date, days, status, reason)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Pending',$9) RETURNING id`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Pending',$9)`,
     [DEFAULT_TENANT, req.user!.sub, user?.name, lt?.id ?? null, type, startDate, endDate, dayCount, reason ?? ''],
   );
-  res.status(201).json({ id: rows[0].id });
+  res.status(201).json({ id });
 });
 
 router.post('/:id/approve', requireAuth, requirePermission('attendance', 'approve'), async (req, res) => {
@@ -120,7 +121,7 @@ router.post('/:id/approve', requireAuth, requirePermission('attendance', 'approv
 
   const reviewer = await queryOne<{ name: string }>('SELECT name FROM users WHERE id = $1', [req.user!.sub]);
   const status = approve ? 'Approved' : 'Rejected';
-  await query(`UPDATE leave_requests SET status = $1::leave_status, comment = $2, decided_by = $3 WHERE id = $4`, [
+  await query(`UPDATE leave_requests SET status = $1, comment = $2, decided_by = $3 WHERE id = $4`, [
     status,
     comment ?? null,
     reviewer?.name,

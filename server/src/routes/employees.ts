@@ -1,9 +1,10 @@
 import { Router } from 'express';
-import { DEFAULT_TENANT, query, queryOne } from '../db.js';
+import { DEFAULT_TENANT, insert, query, queryOne } from '../db.js';
 import { attachUser, requireAuth } from '../middleware/auth.js';
 import { ensureAppUser, requirePermission, requireSelfOrPermission } from '../middleware/rbac.js';
 import { hasAction } from '../lib/permissions.js';
 import { writeAudit } from '../lib/audit.js';
+import { isoDate } from '../lib/dates.js';
 
 const router = Router();
 
@@ -12,6 +13,7 @@ function mapEmployee(row: Record<string, unknown>, hideSalary: boolean) {
   let parsed: string[] = [];
   if (Array.isArray(skills)) parsed = skills.map(String);
   else if (skills) parsed = JSON.parse(String(skills));
+  const join = isoDate(row.join_date);
   const base = {
     id: Number(row.id),
     user_id: row.user_id,
@@ -21,8 +23,8 @@ function mapEmployee(row: Record<string, unknown>, hideSalary: boolean) {
     department: row.department,
     position: row.position,
     status: row.status,
-    joinDate: String(row.join_date).slice(0, 10),
-    join_date: row.join_date,
+    joinDate: join,
+    join_date: join,
     location: row.location,
     country: row.country,
     avatar: row.avatar,
@@ -65,7 +67,10 @@ router.get('/', requireAuth, attachUser, requirePermission('employees', 'read'),
     limit,
     offset,
   ]);
-  const [{ count }] = await query<{ count: string }>(`SELECT COUNT(*)::text as count FROM employees WHERE ${where}`, params);
+  const [countRow] = await query<{ count: number | string }>(
+    `SELECT COUNT(*) AS count FROM employees WHERE ${where}`,
+    params,
+  );
 
   const canSeeAllSalary = u && hasAction(u.permissions ?? {}, 'employees', 'update');
   const hideOthersSalary = !canSeeAllSalary;
@@ -73,7 +78,7 @@ router.get('/', requireAuth, attachUser, requirePermission('employees', 'read'),
   res.json({
     employees: rows.map((r) => mapEmployee(r, hideOthersSalary && r.user_id !== req.user!.sub)),
     page,
-    total: Number(count),
+    total: Number(countRow?.count ?? 0),
   });
 });
 
@@ -91,10 +96,9 @@ router.post('/', requireAuth, attachUser, requirePermission('employees', 'create
   const dup = await queryOne('SELECT id FROM employees WHERE tenant_id = $1 AND LOWER(email) = $2', [DEFAULT_TENANT, email]);
   if (dup) return res.status(409).json({ error: 'Employee with this email already exists' });
 
-  const rows = await query<{ id: number }>(
+  const id = await insert(
     `INSERT INTO employees (tenant_id, user_id, name, email, phone, department, position, status, join_date, salary, location, country, avatar, manager, skills)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)
-     RETURNING id`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
     [
       DEFAULT_TENANT,
       e.userId ?? null,
@@ -114,8 +118,8 @@ router.post('/', requireAuth, attachUser, requirePermission('employees', 'create
     ],
   );
   const u = await ensureAppUser(req);
-  if (u) await writeAudit(u.id, u.name, 'Employee created', `Created employee ${e.name}`, String(rows[0].id));
-  res.status(201).json({ id: rows[0].id });
+  if (u) await writeAudit(u.id, u.name, 'Employee created', `Created employee ${e.name}`, String(id));
+  res.status(201).json({ id });
 });
 
 router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'update'), async (req, res) => {

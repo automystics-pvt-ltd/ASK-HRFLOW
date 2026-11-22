@@ -1,13 +1,24 @@
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
-import { DEFAULT_TENANT, query } from '../db.js';
+import { DEFAULT_TENANT, query, queryOne } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
 
 const router = Router();
 
+function parseReadBy(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String);
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(String(value));
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
 function mapNotice(row: Record<string, unknown>, userId: string) {
-  const readBy = Array.isArray(row.read_by) ? (row.read_by as string[]) : JSON.parse(String(row.read_by || '[]'));
+  const readBy = parseReadBy(row.read_by);
   return {
     id: row.id,
     ts: new Date(String(row.created_at)).toISOString(),
@@ -32,18 +43,28 @@ router.post('/', requireAuth, requirePermission('engagement', 'create'), async (
   const { title, body, kind, userId } = req.body || {};
   const id = 'n-' + uuid().slice(0, 8);
   await query(
-    `INSERT INTO notices (id, tenant_id, user_id, title, body, kind, read_by) VALUES ($1,$2,$3,$4,$5,$6,'[]'::jsonb)`,
-    [id, DEFAULT_TENANT, userId || 'all', title, body, kind || 'announcement'],
+    `INSERT INTO notices (id, tenant_id, user_id, title, body, kind, read_by) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+    [id, DEFAULT_TENANT, userId || 'all', title, body, kind || 'announcement', JSON.stringify([])],
   );
   res.status(201).json({ id });
 });
 
 router.post('/:id/read', requireAuth, async (req, res) => {
-  await query(
-    `UPDATE notices SET read_by = read_by || $1::jsonb
-     WHERE id = $2 AND tenant_id = $3 AND NOT read_by @> $1::jsonb`,
-    [JSON.stringify([req.user!.sub]), req.params.id, DEFAULT_TENANT],
+  const row = await queryOne<{ read_by: unknown }>(
+    'SELECT read_by FROM notices WHERE id = $1 AND tenant_id = $2',
+    [req.params.id, DEFAULT_TENANT],
   );
+  if (!row) return res.status(404).json({ error: 'Not found' });
+
+  const readBy = parseReadBy(row.read_by);
+  if (!readBy.includes(req.user!.sub)) {
+    readBy.push(req.user!.sub);
+    await query('UPDATE notices SET read_by = $1 WHERE id = $2 AND tenant_id = $3', [
+      JSON.stringify(readBy),
+      req.params.id,
+      DEFAULT_TENANT,
+    ]);
+  }
   res.json({ ok: true });
 });
 

@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuid } from 'uuid';
 import fs from 'fs';
-import { DEFAULT_TENANT, query, queryOne } from '../db.js';
+import { DEFAULT_TENANT, insert, query, queryOne } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
 
@@ -30,6 +30,57 @@ export const payrollRouter = Router();
 payrollRouter.get('/runs', requireAuth, requirePermission('payroll', 'read'), async (_req, res) => {
   const rows = await query('SELECT * FROM payroll_runs WHERE tenant_id = $1 ORDER BY period_start DESC', [DEFAULT_TENANT]);
   res.json({ runs: rows });
+});
+payrollRouter.get('/payslips', requireAuth, requirePermission('payroll', 'read'), async (req, res) => {
+  const emp = await queryOne<{ id: number }>('SELECT id FROM employees WHERE tenant_id = $1 AND user_id = $2', [
+    DEFAULT_TENANT,
+    req.user!.sub,
+  ]);
+  const canAll = req.user!.role === 'admin' || req.user!.role === 'hr';
+  const rows = canAll
+    ? await query(
+        `SELECT p.*, e.name AS employee_name FROM payslips p
+         JOIN employees e ON e.id = p.employee_id
+         WHERE p.tenant_id = $1 ORDER BY p.issued_at DESC`,
+        [DEFAULT_TENANT],
+      )
+    : emp
+      ? await query('SELECT * FROM payslips WHERE tenant_id = $1 AND employee_id = $2 ORDER BY issued_at DESC', [
+          DEFAULT_TENANT,
+          emp.id,
+        ])
+      : [];
+  res.json({ payslips: rows });
+});
+payrollRouter.post('/runs', requireAuth, requirePermission('payroll', 'update'), async (req, res) => {
+  const { periodLabel, periodStart, periodEnd } = req.body || {};
+  if (!periodLabel || !periodStart || !periodEnd) return res.status(400).json({ error: 'Missing period fields' });
+  const emps = await query<{ id: number; salary: string | number }>(
+    `SELECT id, salary FROM employees WHERE tenant_id = $1 AND status = 'Active'`,
+    [DEFAULT_TENANT],
+  );
+  const total = emps.reduce((s, e) => s + Number(e.salary || 0) / 12, 0);
+  const runId = await insert(
+    `INSERT INTO payroll_runs (tenant_id, period_label, period_start, period_end, status, total_amount)
+     VALUES ($1,$2,$3,$4,'processed',$5)`,
+    [DEFAULT_TENANT, periodLabel, periodStart, periodEnd, total],
+  );
+  for (const e of emps) {
+    const gross = Number(e.salary || 0) / 12;
+    const net = Math.round(gross * 0.8 * 100) / 100;
+    await query(
+      `INSERT INTO payslips (tenant_id, payroll_run_id, employee_id, net_pay, breakdown)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [
+        DEFAULT_TENANT,
+        runId,
+        e.id,
+        net,
+        JSON.stringify({ gross: Math.round(gross * 100) / 100, deductions: Math.round((gross - net) * 100) / 100 }),
+      ],
+    );
+  }
+  res.status(201).json({ id: runId, total, employeesProcessed: emps.length });
 });
 
 export const recruitmentRouter = crudRouter('job_openings', 'recruitment');
@@ -70,15 +121,15 @@ documentsRouter.post('/upload', requireAuth, requirePermission('employees', 'cre
 
 export const settingsRouter = Router();
 settingsRouter.get('/', requireAuth, requirePermission('settings', 'read'), async (_req, res) => {
-  const rows = await query('SELECT key, value FROM organization_settings WHERE tenant_id = $1', [DEFAULT_TENANT]);
+  const rows = await query('SELECT `key`, value FROM organization_settings WHERE tenant_id = $1', [DEFAULT_TENANT]);
   const settings: Record<string, unknown> = {};
   for (const r of rows) settings[String(r.key)] = r.value;
   res.json({ settings });
 });
 settingsRouter.put('/:key', requireAuth, requirePermission('settings', 'update'), async (req, res) => {
   await query(
-    `INSERT INTO organization_settings (tenant_id, key, value) VALUES ($1,$2,$3::jsonb)
-     ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value`,
+    `INSERT INTO organization_settings (tenant_id, \`key\`, value) VALUES ($1,$2,$3)
+     ON DUPLICATE KEY UPDATE value = VALUES(value)`,
     [DEFAULT_TENANT, req.params.key, JSON.stringify(req.body.value ?? req.body)],
   );
   res.json({ ok: true });
@@ -86,24 +137,26 @@ settingsRouter.put('/:key', requireAuth, requirePermission('settings', 'update')
 
 export const reportsRouter = Router();
 reportsRouter.get('/summary', requireAuth, requirePermission('reports', 'read'), async (_req, res) => {
-  const [emps] = await query<{ c: string }>('SELECT COUNT(*)::text c FROM employees WHERE tenant_id = $1', [DEFAULT_TENANT]);
-  const [jobs] = await query<{ c: string }>('SELECT COUNT(*)::text c FROM job_openings WHERE tenant_id = $1 AND status = $2', [
+  const [emps] = await query<{ c: number | string }>('SELECT COUNT(*) AS c FROM employees WHERE tenant_id = $1', [
     DEFAULT_TENANT,
-    'open',
   ]);
+  const [jobs] = await query<{ c: number | string }>(
+    'SELECT COUNT(*) AS c FROM job_openings WHERE tenant_id = $1 AND status = $2',
+    [DEFAULT_TENANT, 'open'],
+  );
   res.json({ report: { headcount: Number(emps?.c), openJobs: Number(jobs?.c) } });
 });
 
 export const shiftsRouter = Router();
 shiftsRouter.get('/', requireAuth, requirePermission('attendance', 'read'), async (_req, res) => {
-  const rows = await query('SELECT * FROM shifts WHERE tenant_id = $1 AND active', [DEFAULT_TENANT]);
+  const rows = await query('SELECT * FROM shifts WHERE tenant_id = $1 AND active = 1', [DEFAULT_TENANT]);
   res.json({ shifts: rows });
 });
 shiftsRouter.post('/', requireAuth, requirePermission('attendance', 'update'), async (req, res) => {
   const { name, startTime, endTime, graceMinutes } = req.body || {};
-  const rows = await query<{ id: number }>(
-    `INSERT INTO shifts (tenant_id, name, start_time, end_time, grace_minutes) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+  const id = await insert(
+    `INSERT INTO shifts (tenant_id, name, start_time, end_time, grace_minutes) VALUES ($1,$2,$3,$4,$5)`,
     [DEFAULT_TENANT, name, startTime, endTime, graceMinutes ?? 15],
   );
-  res.status(201).json({ id: rows[0].id });
+  res.status(201).json({ id });
 });

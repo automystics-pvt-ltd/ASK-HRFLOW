@@ -64,7 +64,7 @@ app.use('/api/shifts', shiftsRouter);
  *       200:
  *         description: OK
  */
-app.get('/api/health', (_req, res) => res.json({ ok: true, db: 'postgresql' }));
+app.get('/api/health', (_req, res) => res.json({ ok: true, db: 'mysql' }));
 
 const dist = path.join(__dirname, '..', '..', 'dist');
 app.use(express.static(dist));
@@ -81,6 +81,6 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 });
 
 app.listen(PORT, () => {
-  console.log(`ASK HRFlow API (PostgreSQL) on http://localhost:${PORT}`);
+  console.log(`ASK HRFlow API (MySQL) on http://localhost:${PORT}`);
   console.log(`Swagger: http://localhost:${PORT}/api/docs`);
 });
