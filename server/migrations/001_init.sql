@@ -1,0 +1,2 @@
+-- Baseline: applied via server/schema.sql by `npm run db:migrate`.
+-- Do not edit this placeholder; add 002_*.sql for incremental changes.

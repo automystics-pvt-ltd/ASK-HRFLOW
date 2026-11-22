@@ -6,38 +6,33 @@
 - [x] TypeScript Express server (`server/src/`) via `tsx` + `mysql2`
 - [x] Auth (JWT cookie), login audit, `me` with computed permissions
 - [x] RBAC middleware aligned with `access.tsx` module/action model
-- [x] Employees CRUD with duplicate email guard, list filters, salary masking
+- [x] Employees CRUD + Add/Edit dialogs wired to API; salary masking
 - [x] Attendance check-in/out with event log + daily rollup
-- [x] Leave types, balances, requests with overlap/balance checks + approval balance update
-- [x] Timesheets lifecycle (entries, submit, approve/reject, lock)
+- [x] Leave types, balances, requests with overlap/balance checks + approve/reject UI
+- [x] Timesheets lifecycle APIs (entries, submit, approve/reject, lock)
 - [x] Dashboard stats from SQL (no hardcoded KPIs)
 - [x] Access API (users, permissions, create/patch user, role template update)
-- [x] Notices list + mark read; audit log list
-- [x] Stub routes: payroll (runs + process), recruitment, performance, documents (multer → `uploads/`), settings, reports, shifts
+- [x] Notices, audit logs; payroll/recruitment/performance/settings bound to MySQL
 - [x] Swagger at `/api/docs`
-- [x] Seed script (`npm run db:seed`) — demo users + sample HR data
-- [x] Docker Compose → MySQL 8; `.env.example` updated
-- [x] Frontend API client (`src/app/lib/api.ts`) and wiring for dashboard, employees, attendance/leave/timesheet, access
-- [x] Employee **Add** dialog submits to `employeesApi.create`
-- [x] Leave approve/reject actions in Attendance UI
-- [x] Removed legacy CommonJS MySQL server files under `server/*.js`
+- [x] Seed + `db:migrate` (schema_migrations)
+- [x] Docker Compose (MySQL 8 + app image); Dockerfile; GitHub Actions CI
+- [x] Unit tests (RBAC, working days, dates) + API RBAC integration tests + Playwright login e2e
+- [x] Environments doc (`docs/ENVIRONMENTS.md`)
 
 ## Verified locally
 
-- `npm run db:seed` → MySQL
+- `npm run db:seed` / `db:migrate` → MySQL
 - `/api/health` → `{ ok: true, db: "mysql" }`
-- Admin login + `/api/dashboard/stats` + `/api/employees`
-- Employee role gets `403` on `/api/employees`
+- Admin login + dashboard/employees; employee `403` on `/api/employees`
+- `npm run test:unit` · `npm run test:api` · `npm run build`
 
 ## Remaining / follow-up
 
-- [ ] Access Control role-template UI → `PUT /api/access/permissions/:role` (API exists; UI still partly client-local)
-- [ ] Employee edit dialog → `employeesApi.update`
-- [x] HR pages (payroll, recruitment, performance, settings) bound to MySQL APIs / seed data
-- [ ] Timesheet weekly submit/approve UI (check-in uses API; weekly sheets still partial)
-- [ ] Pagination UI for employee list (API supports `page`/`limit`)
+- [ ] Access Control role-template UI → `PUT /api/access/permissions/:role`
+- [ ] Weekly timesheet submit/approve UI (check-in API works; weekly sheets partial)
+- [ ] Documents UI upload/list screens
+- [ ] Shift management UI
+- [ ] Pagination UI for employee list
 - [ ] Zod validation on all write endpoints
-- [ ] Playwright + API integration tests
-- [ ] Production migrations tool instead of full schema replay on seed
-- [ ] Tenant resolution middleware (currently fixed `t-default`)
-- [ ] Redeploy VPS (`hrflow.automystics.tech`) on MySQL with this stack
+- [ ] Load/stress suite
+- [ ] Redeploy VPS (`hrflow.automystics.tech`) on this MySQL stack

@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'cursor/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: hrflow
+          MYSQL_DATABASE: hrflow
+          MYSQL_USER: hrflow
+          MYSQL_PASSWORD: hrflow
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uhrflow -phrflow"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    env:
+      DATABASE_URL: mysql://hrflow:hrflow@127.0.0.1:3306/hrflow
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: hrflow
+      DB_USER: hrflow
+      DB_PASSWORD: hrflow
+      JWT_SECRET: ci-test-secret
+      PORT: 3001
+      CORS_ORIGIN: http://127.0.0.1:5173
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:unit
+      - name: Migrate + seed MySQL
+        run: |
+          npm run db:migrate
+          npm run db:seed
+      - name: Start API
+        run: npx tsx server/src/index.ts &
+      - name: Wait for health
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:3001/api/health && exit 0
+            sleep 1
+          done
+          exit 1
+      - run: npm run test:api
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Start Vite preview
+        run: |
+          npx vite --host 127.0.0.1 --port 5173 &
+          sleep 2
+      - run: npm run test:e2e
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:5173

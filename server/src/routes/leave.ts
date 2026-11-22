@@ -5,16 +5,13 @@ import { ensureAppUser, requirePermission } from '../middleware/rbac.js';
 import { userCan } from '../lib/users.js';
 import { writeAudit } from '../lib/audit.js';
 import { isoDate } from '../lib/dates.js';
+import { workingDaysBetween } from '../lib/working-days.js';
 
 const router = Router();
 
 function parseDays(start: string, end: string, explicit?: number) {
   if (explicit && explicit > 0) return explicit;
-  let n = 0;
-  for (let d = new Date(start + 'T00:00'); d <= new Date(end + 'T00:00'); d.setDate(d.getDate() + 1)) {
-    if (d.getDay() % 6 !== 0) n++;
-  }
-  return n;
+  return workingDaysBetween(start, end);
 }
 
 async function overlaps(userId: string, start: string, end: string, excludeId?: number) {

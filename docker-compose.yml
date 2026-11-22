@@ -12,6 +12,31 @@ services:
     volumes:
       - hrflow_mysql_data:/var/lib/mysql
     command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uhrflow", "-phrflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: mysql://hrflow:hrflow@mysql:3306/hrflow
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: hrflow
+      DB_USER: hrflow
+      DB_PASSWORD: hrflow
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      PORT: 3001
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      NODE_ENV: production
+    depends_on:
+      mysql:
+        condition: service_healthy
 
 volumes:
   hrflow_mysql_data:

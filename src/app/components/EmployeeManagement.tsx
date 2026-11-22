@@ -80,6 +80,18 @@ export function EmployeeManagement() {
   });
   const [addBusy, setAddBusy] = useState(false);
   const [listError, setListError] = useState('');
+  const [editBusy, setEditBusy] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    department: 'Engineering',
+    position: '',
+    salary: '',
+    status: 'Active',
+    location: '',
+    country: 'United States',
+  });
 
   const reloadEmployees = () =>
     employeesApi
@@ -96,6 +108,50 @@ export function EmployeeManagement() {
   useEffect(() => {
     void reloadEmployees();
   }, []);
+
+  const openEdit = (employee: EmployeeRecord) => {
+    setSelectedEmployee(employee);
+    setEditForm({
+      name: employee.name,
+      email: employee.email,
+      phone: employee.phone ?? '',
+      department: employee.department,
+      position: employee.position,
+      salary: String(employee.salary || ''),
+      status: employee.status,
+      location: employee.location,
+      country: employee.country,
+    });
+  };
+
+  const submitEditEmployee = async () => {
+    if (!selectedEmployee) return;
+    if (!editForm.name.trim() || !editForm.email.trim() || !editForm.position.trim()) {
+      toast.error('Name, email and position are required.');
+      return;
+    }
+    setEditBusy(true);
+    try {
+      await employeesApi.update(selectedEmployee.id, {
+        name: editForm.name.trim(),
+        email: editForm.email.trim(),
+        phone: editForm.phone.trim() || null,
+        department: editForm.department,
+        position: editForm.position.trim(),
+        salary: Number(editForm.salary) || 0,
+        status: editForm.status,
+        location: editForm.location.trim() || null,
+        country: editForm.country,
+      });
+      toast.success('Employee updated');
+      setSelectedEmployee(null);
+      await reloadEmployees();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not update employee');
+    } finally {
+      setEditBusy(false);
+    }
+  };
 
   const submitAddEmployee = async () => {
     if (!addForm.name.trim() || !addForm.email.trim() || !addForm.position.trim()) {
@@ -266,7 +322,7 @@ export function EmployeeManagement() {
                       <TableCell>{getStatusBadge(employee.status)}</TableCell>
                       <TableCell>{new Date(employee.joinDate).toLocaleDateString()}</TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="icon" onClick={() => setSelectedEmployee(employee)}><Edit className="w-4 h-4" /></Button>
+                        <Button variant="ghost" size="icon" onClick={() => openEdit(employee)} aria-label={`Edit ${employee.name}`}><Edit className="w-4 h-4" /></Button>
                         <Button variant="ghost" size="icon"><MoreVertical className="w-4 h-4" /></Button>
                       </TableCell>
                     </TableRow>
@@ -279,7 +335,7 @@ export function EmployeeManagement() {
         <TabsContent value="cards">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredEmployees.map((employee) => (
-              <Card key={employee.id} className="border border-border rounded-xl cursor-pointer" onClick={() => setSelectedEmployee(employee)}>
+              <Card key={employee.id} className="border border-border rounded-xl cursor-pointer" onClick={() => openEdit(employee)}>
                 <CardContent className="p-6">
                   <div className="flex justify-between mb-4">
                     <motionEmployeeHeader employee={employee} />
@@ -297,13 +353,43 @@ export function EmployeeManagement() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={!!selectedEmployee} onOpenChange={() => setSelectedEmployee(null)}>
-        <DialogContent>
+      <Dialog open={!!selectedEmployee} onOpenChange={(open) => !open && setSelectedEmployee(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           {selectedEmployee && (
             <>
-              <DialogHeader><DialogTitle>{selectedEmployee.name}</DialogTitle></DialogHeader>
-              <p className="text-sm text-muted-foreground">{selectedEmployee.position} · {selectedEmployee.department}</p>
-              <p className="text-sm">{formatMoney(selectedEmployee.salary, currencyFor(selectedEmployee.id, selectedEmployee.country))}</p>
+              <DialogHeader><DialogTitle>Edit {selectedEmployee.name}</DialogTitle></DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                {formatMoney(selectedEmployee.salary, currencyFor(selectedEmployee.id, selectedEmployee.country))} current salary baseline
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
+                <div className="space-y-2 md:col-span-2"><Label>Full name</Label><Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} disabled={!can.canEditEmployee} /></div>
+                <div className="space-y-2"><Label>Email</Label><Input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} disabled={!can.canEditEmployee} /></div>
+                <div className="space-y-2"><Label>Phone</Label><Input value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} disabled={!can.canEditEmployee} /></div>
+                <div className="space-y-2">
+                  <Label>Department</Label>
+                  <Select value={editForm.department} onValueChange={(v) => setEditForm({ ...editForm, department: v })} disabled={!can.canEditEmployee}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{departments.slice(1).map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2"><Label>Position</Label><Input value={editForm.position} onChange={(e) => setEditForm({ ...editForm, position: e.target.value })} disabled={!can.canEditEmployee} /></div>
+                <div className="space-y-2"><Label>Salary</Label><Input type="number" value={editForm.salary} onChange={(e) => setEditForm({ ...editForm, salary: e.target.value })} disabled={!can.canEditEmployee} /></div>
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <Select value={editForm.status} onValueChange={(v) => setEditForm({ ...editForm, status: v })} disabled={!can.canEditEmployee}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{statuses.slice(1).map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2"><Label>Location</Label><Input value={editForm.location} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} disabled={!can.canEditEmployee} /></div>
+                <div className="space-y-2"><Label>Country</Label><Input value={editForm.country} onChange={(e) => setEditForm({ ...editForm, country: e.target.value })} disabled={!can.canEditEmployee} /></div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setSelectedEmployee(null)}>Close</Button>
+                {can.canEditEmployee && (
+                  <Button disabled={editBusy} onClick={() => void submitEditEmployee()}>{editBusy ? 'Saving…' : 'Save changes'}</Button>
+                )}
+              </div>
             </>
           )}
         </DialogContent>
