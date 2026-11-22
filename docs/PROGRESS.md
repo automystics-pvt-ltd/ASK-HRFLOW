@@ -20,8 +20,14 @@
 - [x] Swagger at `/api/docs`
 - [x] Seed + `db:migrate` (schema_migrations)
 - [x] Docker Compose (MySQL 8 + app image); Dockerfile; GitHub Actions CI
-- [x] Unit tests (RBAC, working days, dates) + API RBAC integration tests + Playwright login e2e
+- [x] Unit tests (RBAC, working days, dates, geocode) + API RBAC integration tests + Playwright login e2e
 - [x] Environments doc (`docs/ENVIRONMENTS.md`)
+- [x] Branding API (`/api/branding`) — company, theme, logo upload; BrandProvider + CSS vars
+- [x] HR document templates + generate (`/api/hr-documents`) with seeded HTML templates
+- [x] Holidays CRUD (`/api/holidays`) + leave types admin POST/PUT
+- [x] Approval workflows + inbox (`/api/approvals`); leave create spawns request when workflow active
+- [x] Attendance reverse geocoding (Nominatim) → `location_address` (never invents place names)
+- [x] Migration `002` with MySQL 8–safe column ensures via `information_schema` in `migrate.ts`
 
 ## Verified locally
 
@@ -31,10 +37,19 @@
 - `npm run test:unit` · `npm run test:api` · `npm run build`
 
 ## Remaining / follow-up
+- [x] Admin dashboard Pending Approvals Approve/Reject wired to `/api/approvals`
+- [x] Quick Actions navigate to real modules
+- [x] Recruitment Post New Job create API + dialog (no more 501 stub)
+- [x] Payslip download + payroll report CSV export
+- [x] Employee CSV import + row actions menu (status changes)
+
 
 - [ ] Pagination UI for employee list
 - [ ] Zod validation on all write endpoints
 - [ ] Load/stress suite
-- [ ] Document download / employee-scoped document views (list+upload only today)
 - [ ] Shift edit/deactivate UI (create + list only today)
+- [ ] Multi-level approval escalation timer job (schema + steps exist; scheduled escalate pending)
+- [x] HR document generate + employee-scoped view of own generated docs
+- [x] Employee/HR dashboards wired to holidays, leave balances, notices, stats (no static mock KPIs)
+- [x] Attendance UI never fabricates location labels when GPS/address missing
 - [x] Redeployed VPS `https://hrflow.automystics.tech` on MySQL (`/api/health` → mysql)

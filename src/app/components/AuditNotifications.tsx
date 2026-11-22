@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
-import { Card, CardContent } from './ui/card';
+import React, { useEffect, useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { useAccess } from '../lib/access';
+import { approvalsApi } from '../lib/api';
+import { toast } from 'sonner';
 import { Download, Bell, CheckCheck, Search, ShieldCheck, CheckCircle, Megaphone, AlertTriangle } from 'lucide-react';
 
 const fmt = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -43,12 +45,77 @@ const icons = { approval: CheckCircle, access: ShieldCheck, announcement: Megaph
 
 export function NotificationsPage() {
   const { notices, user, markRead, unread } = useAccess();
+  const [inbox, setInbox] = useState<Record<string, unknown>[]>([]);
+
+  const loadInbox = () => {
+    approvalsApi
+      .inbox()
+      .then(({ inbox: rows }) => setInbox(rows ?? []))
+      .catch(() => setInbox([]));
+  };
+
+  useEffect(() => {
+    loadInbox();
+  }, []);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between gap-4">
         <div><h1 className="text-2xl font-medium">Notifications</h1><p className="text-muted-foreground">{unread} unread</p></div>
         <Button variant="outline" className="gap-2 self-start" disabled={!unread} onClick={() => markRead()}><CheckCheck className="w-4 h-4" />Mark all as read</Button>
       </div>
+
+      {inbox.length > 0 && (
+        <Card className="rounded-xl border-primary/30">
+          <CardHeader>
+            <CardTitle className="text-base">Approvals inbox ({inbox.length})</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {inbox.map((item) => (
+              <div key={String(item.id)} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg border border-border/50">
+                <div>
+                  <p className="font-medium">{String(item.workflowName ?? item.moduleKey)}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {String(item.entityType)} #{String(item.entityId)} · {String(item.stepLabel ?? '')}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      void approvalsApi
+                        .action(Number(item.id), 'approve')
+                        .then(() => {
+                          toast.success('Approved');
+                          loadInbox();
+                        })
+                        .catch((e) => toast.error(e instanceof Error ? e.message : 'Failed'));
+                    }}
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      void approvalsApi
+                        .action(Number(item.id), 'reject')
+                        .then(() => {
+                          toast.success('Rejected');
+                          loadInbox();
+                        })
+                        .catch((e) => toast.error(e instanceof Error ? e.message : 'Failed'));
+                    }}
+                  >
+                    Reject
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       {notices.length === 0 ? (
         <Card className="rounded-xl"><CardContent className="p-10 text-center text-muted-foreground"><Bell className="w-8 h-8 mx-auto mb-2" />You’re all caught up.</CardContent></Card>
       ) : (

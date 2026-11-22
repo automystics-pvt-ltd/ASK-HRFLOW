@@ -13,6 +13,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { Search, Plus, Edit, MoreVertical, Mail, MapPin, Users, UserCheck, UserX, Building, Download, Upload } from 'lucide-react';
 
 export type EmployeeRecord = {
@@ -219,12 +225,95 @@ export function EmployeeManagement() {
     a.click();
   };
 
+  const importCsv = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      if (lines.length < 2) {
+        toast.error('CSV needs a header row and at least one employee');
+        return;
+      }
+      const header = lines[0].toLowerCase().split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
+      const idx = (name: string) => header.findIndex((h) => h === name || h.includes(name));
+      const nameI = idx('name');
+      const emailI = idx('email');
+      const deptI = idx('department');
+      const posI = idx('position');
+      if (nameI < 0 || emailI < 0) {
+        toast.error('CSV must include name and email columns');
+        return;
+      }
+      let created = 0;
+      let failed = 0;
+      for (const line of lines.slice(1)) {
+        const cols = line.split(',').map((c) => c.trim().replace(/^"|"$/g, ''));
+        const name = cols[nameI] || '';
+        const email = cols[emailI] || '';
+        if (!name || !email) {
+          failed += 1;
+          continue;
+        }
+        try {
+          await employeesApi.create({
+            name,
+            email,
+            department: (deptI >= 0 ? cols[deptI] : '') || 'Engineering',
+            position: (posI >= 0 ? cols[posI] : '') || 'Team Member',
+            joinDate: new Date().toISOString().slice(0, 10),
+            salary: 0,
+            location: '',
+            country: 'United States',
+          });
+          created += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      await reloadEmployees();
+      toast.success(`Imported ${created} employee(s)${failed ? `, ${failed} failed` : ''}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Import failed');
+    }
+  };
+
+  const setStatus = async (employee: EmployeeRecord, status: string) => {
+    try {
+      await employeesApi.update(employee.id, { status });
+      toast.success(`${employee.name} marked ${status}`);
+      await reloadEmployees();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Update failed');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div><h1 className="text-2xl font-medium">Employee Management</h1><p className="text-muted-foreground">Manage your team members and their information</p></div>
         <div className="flex gap-2">
-          {can.canAddEmployee && <Button variant="outline" className="gap-2" onClick={() => toast.info('Import accepts a CSV with name, email, department and position columns.')}><Upload className="w-4 h-4" />Import</Button>}
+          {can.canAddEmployee && (
+            <>
+              <input
+                id="employee-csv-import"
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => {
+                  void importCsv(e.target.files?.[0] ?? null);
+                  e.target.value = '';
+                }}
+              />
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => document.getElementById('employee-csv-import')?.click()}
+              >
+                <Upload className="w-4 h-4" />
+                Import
+              </Button>
+            </>
+          )}
           {can.canExportData && <Button variant="outline" className="gap-2" onClick={exportCsv}><Download className="w-4 h-4" />Export</Button>}
           {can.canAddEmployee && (
             <Dialog open={isAddEmployeeOpen} onOpenChange={setIsAddEmployeeOpen}>
@@ -323,7 +412,31 @@ export function EmployeeManagement() {
                       <TableCell>{new Date(employee.joinDate).toLocaleDateString()}</TableCell>
                       <TableCell>
                         <Button variant="ghost" size="icon" onClick={() => openEdit(employee)} aria-label={`Edit ${employee.name}`}><Edit className="w-4 h-4" /></Button>
-                        <Button variant="ghost" size="icon"><MoreVertical className="w-4 h-4" /></Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" aria-label={`More actions for ${employee.name}`}>
+                              <MoreVertical className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => openEdit(employee)}>View / Edit</DropdownMenuItem>
+                            {can.canEditEmployee && employee.status !== 'Active' && (
+                              <DropdownMenuItem onClick={() => void setStatus(employee, 'Active')}>
+                                Mark Active
+                              </DropdownMenuItem>
+                            )}
+                            {can.canEditEmployee && employee.status !== 'On Leave' && (
+                              <DropdownMenuItem onClick={() => void setStatus(employee, 'On Leave')}>
+                                Mark On Leave
+                              </DropdownMenuItem>
+                            )}
+                            {can.canEditEmployee && employee.status !== 'Inactive' && (
+                              <DropdownMenuItem onClick={() => void setStatus(employee, 'Inactive')}>
+                                Mark Inactive
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   ))}

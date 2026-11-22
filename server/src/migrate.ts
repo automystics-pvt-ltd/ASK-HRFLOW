@@ -30,13 +30,40 @@ async function applyInit() {
   console.log('Applied migration 001_init (schema.sql)');
 }
 
+async function columnExists(table: string, column: string): Promise<boolean> {
+  const rows = await query<{ ok: number }>(
+    `SELECT 1 AS ok FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = $1 AND COLUMN_NAME = $2
+     LIMIT 1`,
+    [table, column],
+  );
+  return rows.length > 0;
+}
+
+/** Add a column only when missing — safe on MySQL 8 / MariaDB. */
+async function ensureColumn(table: string, column: string, definition: string) {
+  if (await columnExists(table, column)) return;
+  await pool.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${definition}`);
+  console.log(`  + ${table}.${column}`);
+}
+
+/** Columns introduced by 002 that cannot use ADD COLUMN IF NOT EXISTS on MySQL 8. */
+async function ensureBrandingDocsColumns() {
+  await ensureColumn('leave_types', 'carry_forward', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await ensureColumn('leave_types', 'allow_half_day', 'TINYINT(1) NOT NULL DEFAULT 1');
+  await ensureColumn('leave_types', 'eligibility_note', 'VARCHAR(255) NULL');
+  await ensureColumn('leave_types', 'policy_json', 'JSON NULL');
+  await ensureColumn('attendance_events', 'location_address', 'VARCHAR(512) NULL');
+  await ensureColumn('attendance_days', 'location_address', 'VARCHAR(512) NULL');
+}
+
 async function main() {
   await ensureMigrationsTable();
   const done = await applied();
   if (!done.has('001_init')) {
     await applyInit();
   } else {
-    console.log('Migrations up to date (001_init already applied)');
+    console.log('001_init already applied');
   }
   // Future numbered .sql files under server/migrations (excluding 001 placeholder)
   const migDir = path.join(__dirname, '..', 'migrations');
@@ -47,13 +74,24 @@ async function main() {
       .sort();
     for (const file of files) {
       const id = file.replace(/\.sql$/i, '');
-      if (done.has(id)) continue;
+      if (done.has(id)) {
+        // Still ensure columns if 002 was applied before column helper existed
+        if (id === '002_branding_docs_holidays_approvals') {
+          await ensureBrandingDocsColumns();
+        }
+        continue;
+      }
       const sql = fs.readFileSync(path.join(migDir, file), 'utf8');
       await pool.query(sql);
+      if (id === '002_branding_docs_holidays_approvals') {
+        await ensureBrandingDocsColumns();
+      }
       await pool.query('INSERT INTO schema_migrations (id) VALUES (?)', [id]);
       console.log(`Applied migration ${id}`);
     }
   }
+  // Idempotent column ensure even when 002 already recorded
+  await ensureBrandingDocsColumns();
   await pool.end();
 }
 

@@ -9,14 +9,14 @@ import { Timesheet } from './Timesheet';
 import { toast } from 'sonner';
 import { useAccess } from '../lib/access';
 import { useRole } from '../lib/roles';
-import { attendanceApi, leaveApi, shiftsApi } from '../lib/api';
+import { attendanceApi, leaveApi, leaveTypesApi, shiftsApi } from '../lib/api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Label } from './ui/label';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Clock, CalendarDays, AlertCircle, Plus, Download, MapPin, TrendingUp, Coffee, Plane, Heart, Calendar as CalendarIcon } from 'lucide-react';
+import { Clock, CalendarDays, AlertCircle, Plus, Download, MapPin, TrendingUp, Calendar as CalendarIcon } from 'lucide-react';
 
 type LeaveReq = {
   id: number;
@@ -33,14 +33,15 @@ type LeaveReq = {
   decidedBy?: string;
 };
 
-type AttendanceRow = { date: string; checkIn: string; checkOut: string; status: string; hours: number; location: string };
-
-const leaveTypes = [
-  { value: 'vacation', label: 'Vacation', icon: Plane },
-  { value: 'sick', label: 'Sick Leave', icon: Heart },
-  { value: 'personal', label: 'Personal', icon: Coffee },
-];
-
+type AttendanceRow = {
+  date: string;
+  checkIn: string;
+  checkOut: string;
+  status: string;
+  hours: number;
+  location: string;
+  locationAddress?: string | null;
+};
 
 function workingDays(a: string, b: string) {
   let n = 0;
@@ -62,6 +63,11 @@ export function AttendanceLeave() {
   const [shifts, setShifts] = useState<{ id: number; name: string; startTime: string; endTime: string }[]>([]);
   const [shiftOpen, setShiftOpen] = useState(false);
   const [shiftForm, setShiftForm] = useState({ name: '', startTime: '09:00', endTime: '17:00' });
+  const [leaveTypes, setLeaveTypes] = useState<{ value: string; label: string }[]>([
+    { value: 'vacation', label: 'Vacation' },
+    { value: 'sick', label: 'Sick Leave' },
+    { value: 'personal', label: 'Personal' },
+  ]);
   const canManageShifts = acc.can('attendance', 'update');
 
   const loadShifts = () => {
@@ -95,7 +101,8 @@ export function AttendanceLeave() {
             checkOut: r.checkOut ? new Date(String(r.checkOut)).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '—',
             status: String(r.status ?? 'Present'),
             hours: Number(r.hours ?? 0),
-            location: String(r.location ?? 'Office'),
+            location: String(r.locationAddress || r.location || 'Location unavailable'),
+            locationAddress: r.locationAddress ? String(r.locationAddress) : r.location ? String(r.location) : null,
           })),
         );
       })
@@ -103,6 +110,19 @@ export function AttendanceLeave() {
     leaveApi
       .balances()
       .then(({ balances }) => setLeaveBalance(balances))
+      .catch(() => {});
+    leaveTypesApi
+      .list()
+      .then(({ types }) => {
+        const active = (types ?? [])
+          .filter((t) => t.active !== false)
+          .map((t) => ({
+            value: String(t.code ?? ''),
+            label: String(t.name ?? t.code ?? ''),
+          }))
+          .filter((t) => t.value);
+        if (active.length) setLeaveTypes(active);
+      })
       .catch(() => {});
     loadShifts();
   }, []);
@@ -115,7 +135,7 @@ export function AttendanceLeave() {
       return;
     }
     const days = workingDays(form.start, form.end);
-    const label = leaveTypes.find((t) => t.value === form.type)!.label;
+    const label = leaveTypes.find((t) => t.value === form.type)?.label || form.type;
     try {
       await leaveApi.create({ type: label, startDate: form.start, endDate: form.end, days, reason: form.reason, leaveTypeCode: form.type });
       const { requests: rows } = await leaveApi.list();
@@ -133,7 +153,29 @@ export function AttendanceLeave() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div><h1 className="text-2xl font-medium">Attendance & Leave</h1><p className="text-muted-foreground">Track attendance and manage leave requests</p></div>
         <div className="flex gap-2">
-          {acc.can('attendance', 'export') && <Button variant="outline" className="gap-2"><Download className="w-4 h-4" />Export Report</Button>}
+          {acc.can('attendance', 'export') && (
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => {
+                const header = 'Date,Check In,Check Out,Status,Hours,Location';
+                const lines = attendance.map((a) =>
+                  [a.date, a.checkIn, a.checkOut, a.status, a.hours, a.locationAddress || a.location]
+                    .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+                    .join(','),
+                );
+                const csv = [header, ...lines].join('\n');
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+                a.download = 'attendance-report.csv';
+                a.click();
+                toast.success('Attendance report exported');
+              }}
+            >
+              <Download className="w-4 h-4" />
+              Export Report
+            </Button>
+          )}
           <Dialog open={isLeaveRequestOpen} onOpenChange={setIsLeaveRequestOpen}>
             <DialogTrigger asChild><Button className="gap-2"><Plus className="w-4 h-4" />Request Leave</Button></DialogTrigger>
             <DialogContent>
@@ -374,11 +416,18 @@ function RegistrationDateGrid({ form, setForm }: { form: { type: string; start: 
   );
 }
 
-function AttendanceRecordRow({ record }: { record: { date: string; checkIn: string; checkOut: string; location: string } }) {
+function AttendanceRecordRow({
+  record,
+}: {
+  record: { date: string; checkIn: string; checkOut: string; location: string; locationAddress?: string | null };
+}) {
   return (
     <div>
       <p className="font-medium">{new Date(record.date).toLocaleDateString()}</p>
-      <p className="text-sm text-muted-foreground">In: {record.checkIn} · Out: {record.checkOut} · <MapPin className="inline w-3 h-3" /> {record.location}</p>
+      <p className="text-sm text-muted-foreground">
+        In: {record.checkIn} · Out: {record.checkOut} · <MapPin className="inline w-3 h-3" />{' '}
+        {record.locationAddress || record.location}
+      </p>
     </div>
   );
 }

@@ -15,6 +15,10 @@ import dashboardRoutes from './routes/dashboard.js';
 import noticesRoutes from './routes/notices.js';
 import auditRoutes from './routes/audit.js';
 import accessRoutes from './routes/access.js';
+import brandingRoutes from './routes/branding.js';
+import hrDocumentsRoutes from './routes/hr-documents.js';
+import holidaysRoutes from './routes/holidays.js';
+import approvalsRoutes from './routes/approvals.js';
 import {
   payrollRouter,
   recruitmentRouter,
@@ -48,6 +52,10 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/notices', noticesRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/access', accessRoutes);
+app.use('/api/branding', brandingRoutes);
+app.use('/api/hr-documents', hrDocumentsRoutes);
+app.use('/api/holidays', holidaysRoutes);
+app.use('/api/approvals', approvalsRoutes);
 app.use('/api/payroll', payrollRouter);
 app.use('/api/recruitment', recruitmentRouter);
 app.use('/api/performance', performanceRouter);

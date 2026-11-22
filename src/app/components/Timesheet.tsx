@@ -14,6 +14,7 @@ interface Stamp {
   lat: number;
   lng: number;
   accuracy: number;
+  address?: string | null;
 }
 interface Entry {
   date: string; // yyyy-mm-dd
@@ -55,15 +56,19 @@ function getLocation(): Promise<Stamp> {
 }
 
 function LocationLink({ s }: { s: Stamp }) {
+  const label = s.address?.trim() || null;
   return (
     <a
       href={`https://www.google.com/maps?q=${s.lat},${s.lng}`}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex items-center gap-1 text-primary hover:underline"
+      className="inline-flex items-start gap-1 text-primary hover:underline max-w-[220px]"
+      title={label || `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`}
     >
-      <MapPin className="w-3 h-3" />
-      {s.lat.toFixed(4)}, {s.lng.toFixed(4)}
+      <MapPin className="w-3 h-3 mt-0.5 shrink-0" />
+      <span className="line-clamp-2 text-left">
+        {label || `${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}`}
+      </span>
     </a>
   );
 }
@@ -322,20 +327,22 @@ export function Timesheet() {
       const stamp = await getLocation();
       const k = dayKey();
       const cur = entries.find((e) => e.date === k);
-      const apiCall = !cur
-        ? attendanceApi.checkIn({ latitude: stamp.lat, longitude: stamp.lng, accuracy: stamp.accuracy })
-        : attendanceApi.checkOut({ latitude: stamp.lat, longitude: stamp.lng, accuracy: stamp.accuracy });
       try {
-        await apiCall;
+        const res = !cur
+          ? await attendanceApi.checkIn({ latitude: stamp.lat, longitude: stamp.lng, accuracy: stamp.accuracy })
+          : await attendanceApi.checkOut({ latitude: stamp.lat, longitude: stamp.lng, accuracy: stamp.accuracy });
+        const address = res.locationAddress ?? res.location ?? null;
+        const stamped = { ...stamp, address };
+        setEntries((prev) => {
+          const existing = prev.find((e) => e.date === k);
+          if (!existing) return [{ date: k, checkIn: stamped }, ...prev];
+          if (existing.checkOut) return prev;
+          return prev.map((e) => (e.date === k ? { ...e, checkOut: stamped } : e));
+        });
       } catch (e) {
         toast.error(e instanceof Error ? e.message : 'Attendance sync failed');
+        throw e;
       }
-      setEntries((prev) => {
-        const existing = prev.find((e) => e.date === k);
-        if (!existing) return [{ date: k, checkIn: stamp }, ...prev];
-        if (existing.checkOut) return prev;
-        return prev.map((e) => (e.date === k ? { ...e, checkOut: stamp } : e));
-      });
     } catch (e) {
       setError((e as Error).message);
     } finally {

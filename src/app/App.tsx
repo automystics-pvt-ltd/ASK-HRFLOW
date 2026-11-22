@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CurrencyProvider } from './lib/currency';
 import { AccessProvider, useAccess } from './lib/access';
+import { BrandProvider } from './lib/branding';
 import { LoginScreen } from './components/LoginScreen';
 import { AccessRestricted } from './components/AccessRestricted';
 import { AccessControl } from './components/AccessControl';
@@ -59,7 +60,13 @@ function Workspace() {
       case 'audit': return <AuditLogs />;
       case 'settings': return <SettingsPage />;
       default:
-        return role === 'admin' ? <DashboardOverview /> : role === 'hr' ? <HRDashboard go={setActiveTab} /> : <EmployeeDashboard go={setActiveTab} />;
+        return role === 'admin' ? (
+          <DashboardOverview go={setActiveTab} />
+        ) : role === 'hr' ? (
+          <HRDashboard go={setActiveTab} />
+        ) : (
+          <EmployeeDashboard go={setActiveTab} />
+        );
     }
   };
 
@@ -72,11 +79,13 @@ function Workspace() {
 
 export default function App() {
   return (
-    <AccessProvider>
-      <CurrencyProvider>
-        <Workspace />
-        <Toaster />
-      </CurrencyProvider>
-    </AccessProvider>
+    <BrandProvider>
+      <AccessProvider>
+        <CurrencyProvider>
+          <Workspace />
+          <Toaster />
+        </CurrencyProvider>
+      </AccessProvider>
+    </BrandProvider>
   );
 }
