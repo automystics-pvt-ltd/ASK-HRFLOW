@@ -879,14 +879,14 @@ export function SettingsPage() {
                     <Label className="capitalize">{key}</Label>
                     <Input
                       type="color"
-                      value={String(theme[key] ?? '#1e3a5f')}
+                      value={String(theme[key] ?? (key === 'primary' ? '#0b57f0' : key === 'secondary' ? '#0a2a7a' : '#1d6bff'))}
                       onChange={(e) => setTheme({ ...theme, [key]: e.target.value })}
                     />
                   </div>
                 ))}
               </div>
               <p className="text-xs text-muted-foreground">
-                Primary and secondary color the side navigation panel. Accent highlights the active menu item.
+                Primary sets every action button and CTA. Secondary and accent color the side navigation gradient and active menu highlight.
               </p>
               <div className="space-y-1.5">
                 <Label>Mode</Label>

@@ -167,7 +167,13 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
 
   return (
     <div className="space-y-6">
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#061a52] via-[#0a3a9e] to-[#1d6bff] p-4 sm:p-6 text-primary-foreground">
+      <div
+        className="relative overflow-hidden rounded-2xl p-4 sm:p-6 text-primary-foreground"
+        style={{
+          backgroundImage:
+            'linear-gradient(90deg, var(--sidebar-from, var(--primary)) 0%, var(--brand-secondary, var(--primary)) 55%, var(--sidebar-accent, var(--primary)) 100%)',
+        }}
+      >
         <div className="relative z-10 max-w-2xl">
           <h1 className="text-xl sm:text-2xl mb-2 !text-white">
             {greeting()}, {user?.name.split(' ')[0]}

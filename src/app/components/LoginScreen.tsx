@@ -42,18 +42,24 @@ export function LoginScreen() {
 
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-background">
-      <div className="hidden lg:flex flex-col justify-between p-12 bg-gradient-to-br from-[#061a52] via-[#0a2a7a] to-[#1d6bff] text-white">
+      <div
+        className="hidden lg:flex flex-col justify-between p-12 text-white"
+        style={{
+          backgroundImage:
+            'linear-gradient(145deg, var(--sidebar-from, #061a52) 0%, var(--brand-secondary, #0a2a7a) 45%, var(--sidebar-accent, #1d6bff) 100%)',
+        }}
+      >
         <CompanyLogo onDark className="w-72 max-h-28 object-contain" />
         <div className="space-y-4 max-w-md">
           <h1 className="text-4xl font-extrabold tracking-tight !text-white">ASK HRFlow</h1>
-          <p className="text-[#c7d6ff] text-lg">One workspace for people operations: attendance, leave, payroll, hiring and performance, with access tailored to every role.</p>
-          <ul className="space-y-2 text-sm text-[#c7d6ff]">
+          <p className="text-white/80 text-lg">One workspace for people operations: attendance, leave, payroll, hiring and performance, with access tailored to every role.</p>
+          <ul className="space-y-2 text-sm text-white/75">
             {['Role-based access with a full permission matrix', 'Location-verified attendance and locked timesheets', 'Complete audit trail of every access change'].map((t) => (
-              <li key={t} className="flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-[#3cd0f5]" />{t}</li>
+              <li key={t} className="flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-white/90" />{t}</li>
             ))}
           </ul>
         </div>
-        <p className="text-xs text-[#9db3e6]">&copy; {legalName}</p>
+        <p className="text-xs text-white/60">&copy; {legalName}</p>
       </div>
 
       <div className="flex items-center justify-center p-6 sm:p-12">

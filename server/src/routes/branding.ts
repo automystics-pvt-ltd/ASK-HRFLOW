@@ -34,9 +34,9 @@ const DEFAULT_COMPANY = {
 };
 
 const DEFAULT_THEME = {
-  primary: '#1e3a5f',
-  secondary: '#3b82f6',
-  accent: '#0ea5e9',
+  primary: '#0b57f0',
+  secondary: '#0a2a7a',
+  accent: '#1d6bff',
   mode: 'system' as 'system' | 'light' | 'dark',
 };
 
