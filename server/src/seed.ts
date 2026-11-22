@@ -159,8 +159,8 @@ async function seed() {
   ];
   for (const [userId, d, inT, outT, status, hours] of attDays) {
     await query(
-      `INSERT INTO attendance_days (tenant_id, user_id, work_date, check_in, check_out, status, hours, location)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'Office')`,
+      `INSERT INTO attendance_days (tenant_id, user_id, work_date, check_in, check_out, status, hours, location, location_address)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,NULL)`,
       [DEFAULT_TENANT, userId, d, `${d} ${inT}:00`, `${d} ${outT}:00`, status, hours],
     );
   }

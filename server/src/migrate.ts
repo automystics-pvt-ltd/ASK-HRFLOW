@@ -63,7 +63,7 @@ async function main() {
   if (!done.has('001_init')) {
     await applyInit();
   } else {
-    console.log('Migrations up to date (001_init already applied)');
+    console.log('001_init already applied');
   }
   // Future numbered .sql files under server/migrations (excluding 001 placeholder)
   const migDir = path.join(__dirname, '..', 'migrations');

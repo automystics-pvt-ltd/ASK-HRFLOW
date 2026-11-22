@@ -4,6 +4,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { CompanyLogo } from './Brand';
 import { useAccess, roleLabels } from '../lib/access';
+import { useBranding } from '../lib/branding';
 import { Loader2, ShieldCheck, AlertCircle, Shield, Users, User } from 'lucide-react';
 
 const demo = [
@@ -14,10 +15,12 @@ const demo = [
 
 export function LoginScreen() {
   const { login, authReady } = useAccess();
+  const { company } = useBranding();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const legalName = company.legalName || company.name || 'Automystics Technologies Private Limited';
 
   const submit = async (e?: string, p?: string) => {
     const em = e ?? email, pw = p ?? password;
@@ -49,7 +52,7 @@ export function LoginScreen() {
             ))}
           </ul>
         </div>
-        <p className="text-xs text-[#9db3e6]">&copy; Automystics Technologies Private Limited</p>
+        <p className="text-xs text-[#9db3e6]">&copy; {legalName}</p>
       </div>
 
       <div className="flex items-center justify-center p-6 sm:p-12">

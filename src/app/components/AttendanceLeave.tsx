@@ -9,14 +9,14 @@ import { Timesheet } from './Timesheet';
 import { toast } from 'sonner';
 import { useAccess } from '../lib/access';
 import { useRole } from '../lib/roles';
-import { attendanceApi, leaveApi, shiftsApi } from '../lib/api';
+import { attendanceApi, leaveApi, leaveTypesApi, shiftsApi } from '../lib/api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Label } from './ui/label';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Clock, CalendarDays, AlertCircle, Plus, Download, MapPin, TrendingUp, Coffee, Plane, Heart, Calendar as CalendarIcon } from 'lucide-react';
+import { Clock, CalendarDays, AlertCircle, Plus, Download, MapPin, TrendingUp, Calendar as CalendarIcon } from 'lucide-react';
 
 type LeaveReq = {
   id: number;
@@ -43,13 +43,6 @@ type AttendanceRow = {
   locationAddress?: string | null;
 };
 
-const leaveTypes = [
-  { value: 'vacation', label: 'Vacation', icon: Plane },
-  { value: 'sick', label: 'Sick Leave', icon: Heart },
-  { value: 'personal', label: 'Personal', icon: Coffee },
-];
-
-
 function workingDays(a: string, b: string) {
   let n = 0;
   for (let d = new Date(a + 'T00:00'); d <= new Date(b + 'T00:00'); d.setDate(d.getDate() + 1)) if (d.getDay() % 6 !== 0) n++;
@@ -70,6 +63,11 @@ export function AttendanceLeave() {
   const [shifts, setShifts] = useState<{ id: number; name: string; startTime: string; endTime: string }[]>([]);
   const [shiftOpen, setShiftOpen] = useState(false);
   const [shiftForm, setShiftForm] = useState({ name: '', startTime: '09:00', endTime: '17:00' });
+  const [leaveTypes, setLeaveTypes] = useState<{ value: string; label: string }[]>([
+    { value: 'vacation', label: 'Vacation' },
+    { value: 'sick', label: 'Sick Leave' },
+    { value: 'personal', label: 'Personal' },
+  ]);
   const canManageShifts = acc.can('attendance', 'update');
 
   const loadShifts = () => {
@@ -103,8 +101,8 @@ export function AttendanceLeave() {
             checkOut: r.checkOut ? new Date(String(r.checkOut)).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '—',
             status: String(r.status ?? 'Present'),
             hours: Number(r.hours ?? 0),
-            location: String(r.locationAddress || r.location || 'Office'),
-            locationAddress: r.locationAddress ? String(r.locationAddress) : null,
+            location: String(r.locationAddress || r.location || 'Location unavailable'),
+            locationAddress: r.locationAddress ? String(r.locationAddress) : r.location ? String(r.location) : null,
           })),
         );
       })
@@ -112,6 +110,19 @@ export function AttendanceLeave() {
     leaveApi
       .balances()
       .then(({ balances }) => setLeaveBalance(balances))
+      .catch(() => {});
+    leaveTypesApi
+      .list()
+      .then(({ types }) => {
+        const active = (types ?? [])
+          .filter((t) => t.active !== false)
+          .map((t) => ({
+            value: String(t.code ?? ''),
+            label: String(t.name ?? t.code ?? ''),
+          }))
+          .filter((t) => t.value);
+        if (active.length) setLeaveTypes(active);
+      })
       .catch(() => {});
     loadShifts();
   }, []);
@@ -124,7 +135,7 @@ export function AttendanceLeave() {
       return;
     }
     const days = workingDays(form.start, form.end);
-    const label = leaveTypes.find((t) => t.value === form.type)!.label;
+    const label = leaveTypes.find((t) => t.value === form.type)?.label || form.type;
     try {
       await leaveApi.create({ type: label, startDate: form.start, endDate: form.end, days, reason: form.reason, leaveTypeCode: form.type });
       const { requests: rows } = await leaveApi.list();

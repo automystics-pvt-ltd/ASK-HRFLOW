@@ -41,6 +41,9 @@
 - [ ] Pagination UI for employee list
 - [ ] Zod validation on all write endpoints
 - [ ] Load/stress suite
-- [ ] Document download / employee-scoped document views (list+upload only today; HR generate path exists)
 - [ ] Shift edit/deactivate UI (create + list only today)
+- [ ] Multi-level approval escalation timer job (schema + steps exist; scheduled escalate pending)
+- [x] HR document generate + employee-scoped view of own generated docs
+- [x] Employee/HR dashboards wired to holidays, leave balances, notices, stats (no static mock KPIs)
+- [x] Attendance UI never fabricates location labels when GPS/address missing
 - [x] Redeployed VPS `https://hrflow.automystics.tech` on MySQL (`/api/health` → mysql)

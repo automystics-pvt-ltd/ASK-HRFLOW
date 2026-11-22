@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
 import { Timesheet } from './Timesheet';
 import { useAccess } from '../lib/access';
+import { dashboardApi, holidaysApi, leaveApi, noticesApi } from '../lib/api';
 import { CalendarDays, CheckCircle2, ClipboardList, Cake, Megaphone, Users, UserPlus, Clock, FileCheck2, PartyPopper } from 'lucide-react';
 
 const card = 'border border-border shadow-[0_8px_24px_-12px_rgba(11,87,240,0.25)] bg-gradient-to-br from-card via-card to-primary/10 rounded-xl';
@@ -24,12 +25,6 @@ const Chip = ({ children }: { children: React.ReactNode }) => (
   <span className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs">{children}</span>
 );
 
-const holidays = [{ d: 'Jan 26', n: 'Republic Day' }, { d: 'Mar 14', n: 'Holi' }, { d: 'Apr 18', n: 'Good Friday' }];
-const announcements = [
-  { t: 'Q1 town hall', b: 'Join the all-hands on Friday at 4:00 PM.' },
-  { t: 'Health insurance renewal', b: 'Review your coverage options before the month end.' },
-];
-
 function Stat({ label, value, icon: Icon, hint }: { label: string; value: React.ReactNode; icon: any; hint?: string }) {
   return (
     <Card className={card}><CardContent className="p-5 flex items-start justify-between">
@@ -39,34 +34,134 @@ function Stat({ label, value, icon: Icon, hint }: { label: string; value: React.
   );
 }
 
+function formatHolidayDate(iso: string) {
+  const d = new Date(iso.includes('T') ? iso : `${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 export function EmployeeDashboard({ go }: { go: (t: string) => void }) {
-  const leave = [{ n: 'Annual', used: 6, total: 18 }, { n: 'Sick', used: 2, total: 10 }, { n: 'Casual', used: 3, total: 8 }];
+  const [leave, setLeave] = useState<{ n: string; used: number; total: number }[]>([]);
+  const [holidays, setHolidays] = useState<{ d: string; n: string }[]>([]);
+  const [announcements, setAnnouncements] = useState<{ t: string; b: string }[]>([]);
+  const [attendanceRate, setAttendanceRate] = useState<string>('—');
+  const [pendingTasks, setPendingTasks] = useState(0);
+  const [timesheetHint, setTimesheetHint] = useState('Loading…');
+
+  useEffect(() => {
+    leaveApi
+      .balances()
+      .then(({ balances }) => {
+        const rows = Object.entries(balances ?? {}).map(([n, v]) => ({
+          n,
+          used: Number((v as { used?: number }).used ?? 0),
+          total: Number((v as { total?: number }).total ?? 0),
+        }));
+        setLeave(rows);
+      })
+      .catch(() => setLeave([]));
+
+    holidaysApi
+      .list()
+      .then(({ holidays: rows }) => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const upcoming = (rows ?? [])
+          .filter((h) => h.active !== false)
+          .map((h) => ({
+            n: String(h.name ?? ''),
+            raw: String(h.holidayDate ?? h.holiday_date ?? ''),
+          }))
+          .filter((h) => h.n && h.raw)
+          .map((h) => ({ n: h.n, d: formatHolidayDate(h.raw), t: new Date(h.raw.includes('T') ? h.raw : `${h.raw}T00:00:00`).getTime() }))
+          .filter((h) => !Number.isNaN(h.t) && h.t >= today.getTime())
+          .sort((a, b) => a.t - b.t)
+          .slice(0, 5)
+          .map(({ n, d }) => ({ n, d }));
+        setHolidays(upcoming);
+      })
+      .catch(() => setHolidays([]));
+
+    noticesApi
+      .list()
+      .then(({ notices }) => {
+        setAnnouncements(
+          (notices ?? []).slice(0, 4).map((n) => ({
+            t: String(n.title ?? 'Notice'),
+            b: String(n.body ?? n.message ?? ''),
+          })),
+        );
+      })
+      .catch(() => setAnnouncements([]));
+
+    dashboardApi
+      .stats()
+      .then(({ stats }) => {
+        setAttendanceRate(`${stats.attendanceRate ?? 0}%`);
+        setPendingTasks(Number(stats.pendingLeave ?? 0));
+        setTimesheetHint(stats.pendingTimesheets ? `${stats.pendingTimesheets} pending review` : 'Up to date');
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <div className="space-y-6">
       <WelcomeBanner subtitle="Here is your day at a glance." />
       <Timesheet />
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-        <Stat label="Attendance this month" value="94%" icon={Clock} hint="19 of 20 working days" />
-        <Stat label="Timesheet status" value={<Badge variant="secondary">Draft</Badge>} icon={FileCheck2} hint="Week due Friday" />
-        <Stat label="Pending tasks" value="3" icon={ClipboardList} hint="1 due today" />
+        <Stat label="Attendance this month" value={attendanceRate} icon={Clock} hint="Last 30 days" />
+        <Stat label="Timesheet status" value={<Badge variant="secondary">Self-service</Badge>} icon={FileCheck2} hint={timesheetHint} />
+        <Stat label="Pending tasks" value={String(pendingTasks)} icon={ClipboardList} hint="Leave awaiting decision" />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
         <Card className={card}>
           <CardHeader><CardTitle className="text-base">Leave balance</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            {leave.map((l) => (
-              <div key={l.n}><div className="flex justify-between text-sm mb-1"><span>{l.n}</span><span className="text-muted-foreground">{l.total - l.used} of {l.total} left</span></div><Progress value={(l.used / l.total) * 100} /></div>
-            ))}
+            {leave.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No leave balances yet.</p>
+            ) : (
+              leave.map((l) => (
+                <div key={l.n}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>{l.n}</span>
+                    <span className="text-muted-foreground">{Math.max(0, l.total - l.used)} of {l.total} left</span>
+                  </div>
+                  <Progress value={l.total ? Math.min(100, (l.used / l.total) * 100) : 0} />
+                </div>
+              ))
+            )}
             <Button variant="outline" className="w-full" onClick={() => go('attendance')}>Apply for leave</Button>
           </CardContent>
         </Card>
         <Card className={card}>
           <CardHeader><CardTitle className="text-base flex items-center gap-2"><CalendarDays className="w-4 h-4" />Upcoming holidays</CardTitle></CardHeader>
-          <CardContent className="space-y-3">{holidays.map((h) => <div key={h.n} className="flex justify-between text-sm"><span>{h.n}</span><Badge variant="secondary">{h.d}</Badge></div>)}</CardContent>
+          <CardContent className="space-y-3">
+            {holidays.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No upcoming holidays.</p>
+            ) : (
+              holidays.map((h) => (
+                <div key={h.n} className="flex justify-between text-sm">
+                  <span>{h.n}</span>
+                  <Badge variant="secondary">{h.d}</Badge>
+                </div>
+              ))
+            )}
+          </CardContent>
         </Card>
         <Card className={card}>
           <CardHeader><CardTitle className="text-base flex items-center gap-2"><Megaphone className="w-4 h-4" />Announcements</CardTitle></CardHeader>
-          <CardContent className="space-y-3">{announcements.map((a) => <div key={a.t}><p className="text-sm font-medium">{a.t}</p><p className="text-xs text-muted-foreground">{a.b}</p></div>)}</CardContent>
+          <CardContent className="space-y-3">
+            {announcements.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No announcements.</p>
+            ) : (
+              announcements.map((a) => (
+                <div key={a.t}>
+                  <p className="text-sm font-medium">{a.t}</p>
+                  <p className="text-xs text-muted-foreground">{a.b}</p>
+                </div>
+              ))
+            )}
+          </CardContent>
         </Card>
       </div>
     </div>
@@ -75,21 +170,48 @@ export function EmployeeDashboard({ go }: { go: (t: string) => void }) {
 
 export function HRDashboard({ go }: { go: (t: string) => void }) {
   const { can } = useAccess();
+  const [stats, setStats] = useState({
+    totalEmployees: 0,
+    pendingLeave: 0,
+    pendingTimesheets: 0,
+    newHires: 0,
+    activeEmployees: 0,
+  });
+
+  useEffect(() => {
+    dashboardApi
+      .stats()
+      .then(({ stats: s }) =>
+        setStats({
+          totalEmployees: Number(s.totalEmployees ?? 0),
+          pendingLeave: Number(s.pendingLeave ?? 0),
+          pendingTimesheets: Number(s.pendingTimesheets ?? 0),
+          newHires: Number(s.newHires ?? 0),
+          activeEmployees: Number(s.activeEmployees ?? 0),
+        }),
+      )
+      .catch(() => {});
+  }, []);
+
   return (
     <div className="space-y-6">
       <WelcomeBanner subtitle="People operations overview for your departments."
-        chips={<><Chip><Users className="w-3.5 h-3.5" />247 employees</Chip><Chip><UserPlus className="w-3.5 h-3.5" />4 onboarding</Chip></>} />
+        chips={<><Chip><Users className="w-3.5 h-3.5" />{stats.totalEmployees} employees</Chip><Chip><UserPlus className="w-3.5 h-3.5" />{stats.newHires} new this month</Chip></>} />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Stat label="Present today" value="231" icon={CheckCircle2} hint="Late arrivals: 9" />
-        <Stat label="Pending leave" value="5" icon={CalendarDays} hint="Awaiting your review" />
-        <Stat label="Timesheet approvals" value="12" icon={FileCheck2} hint="Submitted this week" />
-        <Stat label="New joiners" value="4" icon={UserPlus} hint="This month" />
+        <Stat label="Present today" value={String(stats.activeEmployees)} icon={CheckCircle2} hint="Active employees" />
+        <Stat label="Pending leave" value={String(stats.pendingLeave)} icon={CalendarDays} hint="Awaiting your review" />
+        <Stat label="Timesheet approvals" value={String(stats.pendingTimesheets)} icon={FileCheck2} hint="Submitted this week" />
+        <Stat label="New joiners" value={String(stats.newHires)} icon={UserPlus} hint="This month" />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className={`${card} lg:col-span-2`}>
           <CardHeader><CardTitle className="text-base">HR tasks</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            {[['Review 5 pending leave requests', 'attendance'], ['Complete onboarding for 2 new joiners', 'employees'], ['Schedule interviews for Senior Developer', 'recruitment']].map(([t, tab]) => (
+            {[
+              [`Review ${stats.pendingLeave} pending leave request${stats.pendingLeave === 1 ? '' : 's'}`, 'attendance'],
+              [`Complete onboarding for ${stats.newHires} new joiner${stats.newHires === 1 ? '' : 's'}`, 'employees'],
+              ['Schedule interviews for open roles', 'recruitment'],
+            ].map(([t, tab]) => (
               <div key={t} className="flex items-center justify-between gap-3 rounded-lg border border-border/60 p-3 text-sm">
                 <span>{t}</span>
                 <Button size="sm" variant="outline" disabled={!can(tab, 'read')} onClick={() => go(tab)}>Open</Button>
@@ -100,9 +222,10 @@ export function HRDashboard({ go }: { go: (t: string) => void }) {
         <Card className={card}>
           <CardHeader><CardTitle className="text-base flex items-center gap-2"><Cake className="w-4 h-4" />Birthdays & anniversaries</CardTitle></CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <div className="flex items-center gap-2"><PartyPopper className="w-4 h-4 text-primary" />Sarah Johnson · birthday Fri</div>
-            <div className="flex items-center gap-2"><PartyPopper className="w-4 h-4 text-primary" />Mike Chen · 3 years Mon</div>
-            <div className="flex items-center gap-2"><PartyPopper className="w-4 h-4 text-primary" />David Wilson · 5 years Wed</div>
+            <div className="flex items-center gap-2"><PartyPopper className="w-4 h-4 text-primary" />Check employee directory for upcoming dates</div>
+            <Button size="sm" variant="outline" className="w-full" disabled={!can('employees', 'read')} onClick={() => go('employees')}>
+              Open directory
+            </Button>
           </CardContent>
         </Card>
       </div>

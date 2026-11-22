@@ -91,9 +91,19 @@ export const attendanceApi = {
     ),
   today: () => api<{ today: Record<string, unknown> | null }>('/api/attendance/today'),
   checkIn: (payload?: { latitude?: number; longitude?: number; accuracy?: number; locationLabel?: string }) =>
-    api<{ ok: boolean }>('/api/attendance/check-in', { method: 'POST', body: JSON.stringify(payload ?? {}) }),
+    api<{
+      ok: boolean;
+      checkIn?: string;
+      location?: string | null;
+      locationAddress?: string | null;
+    }>('/api/attendance/check-in', { method: 'POST', body: JSON.stringify(payload ?? {}) }),
   checkOut: (payload?: { latitude?: number; longitude?: number; accuracy?: number; locationLabel?: string }) =>
-    api<{ ok: boolean }>('/api/attendance/check-out', { method: 'POST', body: JSON.stringify(payload ?? {}) }),
+    api<{
+      ok: boolean;
+      checkOut?: string;
+      location?: string | null;
+      locationAddress?: string | null;
+    }>('/api/attendance/check-out', { method: 'POST', body: JSON.stringify(payload ?? {}) }),
 };
 
 export const timesheetsApi = {
