@@ -184,7 +184,32 @@ export function PayrollManagement() {
         <p className="text-xs text-muted-foreground">
           Paid in {myCur.code}, set by Admin for your country ({myCountry}).
         </p>
-        <Button variant="outline" className="gap-2" disabled={!latest} onClick={() => toast.success('Payslip download queued')}>
+        <Button
+          variant="outline"
+          className="gap-2"
+          disabled={!latest}
+          onClick={() => {
+            if (!latest) return;
+            const gross = Number(breakdown.gross ?? 0);
+            const deductions = Number(breakdown.deductions ?? 0);
+            const net = Number(latest.net_pay ?? 0);
+            const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Payslip</title>
+<style>body{font-family:system-ui,sans-serif;padding:32px;color:#0f172a}h1{margin:0 0 8px}table{border-collapse:collapse;margin-top:24px;width:100%;max-width:480px}td{padding:8px 0;border-bottom:1px solid #e2e8f0}</style></head><body>
+<h1>Payslip</h1>
+<p>Period run #${String(latest.payroll_run_id ?? latest.payrollRunId ?? '—')} · Issued ${String(latest.issued_at ?? latest.issuedAt ?? '').slice(0, 10)}</p>
+<table>
+<tr><td>Gross pay</td><td style="text-align:right">${formatMoney(gross, myCur)}</td></tr>
+<tr><td>Deductions</td><td style="text-align:right">${formatMoney(deductions, myCur)}</td></tr>
+<tr><td><strong>Net pay</strong></td><td style="text-align:right"><strong>${formatMoney(net, myCur)}</strong></td></tr>
+</table>
+</body></html>`;
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+            a.download = `payslip-${String(latest.id)}.html`;
+            a.click();
+            toast.success('Payslip downloaded');
+          }}
+        >
           <FileText className="w-4 h-4" />
           Download payslip
         </Button>
@@ -251,15 +276,46 @@ export function PayrollManagement() {
               {busy ? 'Processing…' : 'Process Payroll'}
             </Button>
           )}
-          <Button variant="outline" className="h-20 flex-col gap-2" onClick={() => toast.info(`${runs.length} payroll run(s) on record`)}>
+          <Button
+            variant="outline"
+            className="h-20 flex-col gap-2"
+            onClick={() => {
+              const header = 'Period,Start,End,Status,Total';
+              const lines = runs.map((r) =>
+                [r.period_label, r.period_start, r.period_end, r.status, r.total_amount]
+                  .map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`)
+                  .join(','),
+              );
+              const a = document.createElement('a');
+              a.href = URL.createObjectURL(new Blob([[header, ...lines].join('\n')], { type: 'text/csv' }));
+              a.download = 'payroll-runs.csv';
+              a.click();
+              toast.success(`Exported ${runs.length} payroll run(s)`);
+            }}
+          >
             <FileText className="w-6 h-6" />
             Generate Reports
           </Button>
-          <Button variant="outline" className="h-20 flex-col gap-2" onClick={() => toast.info('Tax settings are managed in Organization Settings')}>
+          <Button
+            variant="outline"
+            className="h-20 flex-col gap-2"
+            onClick={() => {
+              window.location.hash = '#/settings';
+              toast.success('Open Organization Settings for tax and company configuration');
+            }}
+          >
             <Settings className="w-6 h-6" />
             Tax Settings
           </Button>
-          <Button variant="outline" className="h-20 flex-col gap-2" onClick={() => toast.info(`Total processed volume: ${formatMoney(totalPayroll, currencies.USD)}`)}>
+          <Button
+            variant="outline"
+            className="h-20 flex-col gap-2"
+            onClick={() => {
+              toast.success(
+                `Payroll volume ${formatMoney(totalPayroll, currencies.USD)} across ${runs.length} run(s) · ${payslips.length} payslip(s)`,
+              );
+            }}
+          >
             <BarChart3 className="w-6 h-6" />
             Analytics
           </Button>
@@ -273,8 +329,16 @@ export function RecruitmentManagement() {
   const { can } = useRole();
   const [jobs, setJobs] = useState<Record<string, unknown>[]>([]);
   const [candidates, setCandidates] = useState<Record<string, unknown>[]>([]);
+  const [jobOpen, setJobOpen] = useState(false);
+  const [jobBusy, setJobBusy] = useState(false);
+  const [jobForm, setJobForm] = useState({
+    title: '',
+    department: 'Engineering',
+    location: 'Remote',
+    description: '',
+  });
 
-  useEffect(() => {
+  const reloadJobs = () => {
     recruitmentApi
       .jobs()
       .then(({ items }) => setJobs(items ?? []))
@@ -283,11 +347,39 @@ export function RecruitmentManagement() {
       .candidates()
       .then(({ candidates: c }) => setCandidates(c ?? []))
       .catch(() => {});
+  };
+
+  useEffect(() => {
+    reloadJobs();
   }, []);
 
   const open = jobs.filter((j) => String(j.status) === 'open').length;
   const interviews = candidates.filter((c) => String(c.stage) === 'interview').length;
   const offers = candidates.filter((c) => String(c.stage) === 'offer').length;
+
+  const postJob = async () => {
+    if (!jobForm.title.trim() || !jobForm.department.trim()) {
+      toast.error('Title and department are required');
+      return;
+    }
+    setJobBusy(true);
+    try {
+      await recruitmentApi.createJob({
+        title: jobForm.title.trim(),
+        department: jobForm.department.trim(),
+        location: jobForm.location.trim() || undefined,
+        description: jobForm.description.trim() || undefined,
+      });
+      toast.success('Job opening posted');
+      setJobOpen(false);
+      setJobForm({ title: '', department: 'Engineering', location: 'Remote', description: '' });
+      reloadJobs();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not post job');
+    } finally {
+      setJobBusy(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -297,10 +389,54 @@ export function RecruitmentManagement() {
           <p className="text-muted-foreground">Manage job openings and candidate pipeline</p>
         </div>
         {can.canPostJobs && (
-          <Button className="gap-2" onClick={() => toast.info('Use Admin tools to add openings; create API returns 501 until full form ships.')}>
-            <UserPlus className="w-4 h-4" />
-            Post New Job
-          </Button>
+          <Dialog open={jobOpen} onOpenChange={setJobOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2">
+                <UserPlus className="w-4 h-4" />
+                Post New Job
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Post new job opening</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 py-2">
+                <div className="space-y-1.5">
+                  <Label>Title</Label>
+                  <Input
+                    value={jobForm.title}
+                    onChange={(e) => setJobForm({ ...jobForm, title: e.target.value })}
+                    placeholder="Senior Engineer"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Department</Label>
+                  <Input
+                    value={jobForm.department}
+                    onChange={(e) => setJobForm({ ...jobForm, department: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Location</Label>
+                  <Input
+                    value={jobForm.location}
+                    onChange={(e) => setJobForm({ ...jobForm, location: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Description</Label>
+                  <Input
+                    value={jobForm.description}
+                    onChange={(e) => setJobForm({ ...jobForm, description: e.target.value })}
+                    placeholder="Role summary"
+                  />
+                </div>
+                <Button disabled={jobBusy} onClick={() => void postJob()}>
+                  {jobBusy ? 'Posting…' : 'Post job'}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         )}
       </div>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -331,14 +467,33 @@ export function RecruitmentManagement() {
         <CardContent className="space-y-3">
           {jobs.length === 0 && <p className="text-sm text-muted-foreground">No job openings yet.</p>}
           {jobs.map((j) => (
-            <div key={String(j.id)} className="flex justify-between gap-3 p-3 border rounded-lg">
+            <div key={String(j.id)} className="flex justify-between gap-3 p-3 border rounded-lg items-center">
               <div>
                 <p className="font-medium">{String(j.title)}</p>
                 <p className="text-sm text-muted-foreground">
                   {String(j.department)} · {String(j.location ?? '—')}
                 </p>
               </div>
-              <Badge>{String(j.status)}</Badge>
+              <div className="flex items-center gap-2">
+                <Badge>{String(j.status)}</Badge>
+                {can.canPostJobs && String(j.status) === 'open' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      void recruitmentApi
+                        .updateJob(Number(j.id), { status: 'closed' })
+                        .then(() => {
+                          toast.success('Opening closed');
+                          reloadJobs();
+                        })
+                        .catch((e) => toast.error(e instanceof Error ? e.message : 'Update failed'));
+                    }}
+                  >
+                    Close
+                  </Button>
+                )}
+              </div>
             </div>
           ))}
         </CardContent>
@@ -369,13 +524,7 @@ export function PerformanceManagement() {
   }, [goals, role]);
 
   if (role === 'employee') {
-    const displayGoals = myGoals.slice(0, 3).map((g) => [String(g.title), Number(g.progress ?? 0)] as [string, number]);
-    const fallback: [string, number][] = [
-      ['Ship onboarding revamp', 70],
-      ['Complete security certification', 45],
-      ['Mentor two new joiners', 90],
-    ];
-    const rows = displayGoals.length ? displayGoals : fallback;
+    const rows = myGoals.slice(0, 8).map((g) => [String(g.title), Number(g.progress ?? 0)] as [string, number]);
     return (
       <div className="space-y-6">
         <div>
@@ -387,15 +536,19 @@ export function PerformanceManagement() {
             <CardTitle>Goals &amp; KPIs</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {rows.map(([g, v]) => (
-              <div key={g}>
-                <div className="flex justify-between text-sm mb-1">
-                  <span>{g}</span>
-                  <span className="text-muted-foreground">{v}%</span>
+            {rows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No goals assigned yet.</p>
+            ) : (
+              rows.map(([g, v]) => (
+                <div key={g}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>{g}</span>
+                    <span className="text-muted-foreground">{v}%</span>
+                  </div>
+                  <Progress value={v} />
                 </div>
-                <Progress value={v} />
-              </div>
-            ))}
+              ))
+            )}
           </CardContent>
         </Card>
       </div>

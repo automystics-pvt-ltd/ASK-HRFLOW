@@ -175,7 +175,18 @@ export const payrollApi = {
 
 export const recruitmentApi = {
   jobs: () => api<{ items: Record<string, unknown>[] }>('/api/recruitment'),
+  createJob: (payload: {
+    title: string;
+    department: string;
+    location?: string;
+    status?: string;
+    description?: string;
+  }) => api<{ id: number }>('/api/recruitment', { method: 'POST', body: JSON.stringify(payload) }),
+  updateJob: (id: number, payload: Record<string, unknown>) =>
+    api<{ ok: boolean }>(`/api/recruitment/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   candidates: () => api<{ candidates: Record<string, unknown>[] }>('/api/recruitment/candidates'),
+  createCandidate: (payload: { jobOpeningId: number; name: string; email: string; stage?: string }) =>
+    api<{ id: number }>('/api/recruitment/candidates', { method: 'POST', body: JSON.stringify(payload) }),
 };
 
 export const performanceApi = {

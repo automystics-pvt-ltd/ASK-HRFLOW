@@ -83,10 +83,72 @@ payrollRouter.post('/runs', requireAuth, requirePermission('payroll', 'update'),
   res.status(201).json({ id: runId, total, employeesProcessed: emps.length });
 });
 
-export const recruitmentRouter = crudRouter('job_openings', 'recruitment');
+export const recruitmentRouter = Router();
+recruitmentRouter.get('/', requireAuth, requirePermission('recruitment', 'read'), async (_req, res) => {
+  const rows = await query('SELECT * FROM job_openings WHERE tenant_id = $1 ORDER BY id DESC', [DEFAULT_TENANT]);
+  res.json({ items: rows });
+});
+recruitmentRouter.post('/', requireAuth, requirePermission('recruitment', 'create'), async (req, res) => {
+  const { title, department, location, status, description } = req.body || {};
+  if (!title || !department) return res.status(400).json({ error: 'title and department required' });
+  const id = await insert(
+    `INSERT INTO job_openings (tenant_id, title, department, location, status, description)
+     VALUES ($1,$2,$3,$4,$5,$6)`,
+    [
+      DEFAULT_TENANT,
+      String(title).trim(),
+      String(department).trim(),
+      location ? String(location).trim() : null,
+      status === 'closed' ? 'closed' : 'open',
+      description ? String(description) : null,
+    ],
+  );
+  res.status(201).json({ id });
+});
+recruitmentRouter.put('/:id', requireAuth, requirePermission('recruitment', 'update'), async (req, res) => {
+  const { title, department, location, status, description } = req.body || {};
+  const row = await queryOne('SELECT id FROM job_openings WHERE id = $1 AND tenant_id = $2', [
+    req.params.id,
+    DEFAULT_TENANT,
+  ]);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  await query(
+    `UPDATE job_openings SET
+       title = COALESCE($1, title),
+       department = COALESCE($2, department),
+       location = COALESCE($3, location),
+       status = COALESCE($4, status),
+       description = COALESCE($5, description)
+     WHERE id = $6`,
+    [
+      title != null ? String(title).trim() : null,
+      department != null ? String(department).trim() : null,
+      location !== undefined ? (location ? String(location).trim() : null) : null,
+      status != null ? String(status) : null,
+      description !== undefined ? (description ? String(description) : null) : null,
+      req.params.id,
+    ],
+  );
+  res.json({ ok: true });
+});
 recruitmentRouter.get('/candidates', requireAuth, requirePermission('recruitment', 'read'), async (_req, res) => {
-  const rows = await query('SELECT * FROM candidates WHERE tenant_id = $1', [DEFAULT_TENANT]);
+  const rows = await query('SELECT * FROM candidates WHERE tenant_id = $1 ORDER BY id DESC', [DEFAULT_TENANT]);
   res.json({ candidates: rows });
+});
+recruitmentRouter.post('/candidates', requireAuth, requirePermission('recruitment', 'create'), async (req, res) => {
+  const { jobOpeningId, name, email, stage } = req.body || {};
+  if (!jobOpeningId || !name || !email) return res.status(400).json({ error: 'jobOpeningId, name and email required' });
+  const job = await queryOne('SELECT id FROM job_openings WHERE id = $1 AND tenant_id = $2', [
+    jobOpeningId,
+    DEFAULT_TENANT,
+  ]);
+  if (!job) return res.status(404).json({ error: 'Job opening not found' });
+  const id = await insert(
+    `INSERT INTO candidates (tenant_id, job_opening_id, name, email, stage)
+     VALUES ($1,$2,$3,$4,$5)`,
+    [DEFAULT_TENANT, jobOpeningId, String(name).trim(), String(email).trim().toLowerCase(), stage || 'applied'],
+  );
+  res.status(201).json({ id });
 });
 
 export const performanceRouter = Router();

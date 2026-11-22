@@ -37,6 +37,12 @@
 - `npm run test:unit` · `npm run test:api` · `npm run build`
 
 ## Remaining / follow-up
+- [x] Admin dashboard Pending Approvals Approve/Reject wired to `/api/approvals`
+- [x] Quick Actions navigate to real modules
+- [x] Recruitment Post New Job create API + dialog (no more 501 stub)
+- [x] Payslip download + payroll report CSV export
+- [x] Employee CSV import + row actions menu (status changes)
+
 
 - [ ] Pagination UI for employee list
 - [ ] Zod validation on all write endpoints
