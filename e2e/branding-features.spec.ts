@@ -7,13 +7,16 @@ test.describe('Branding, holidays, docs settings', () => {
     await page.locator('#password').fill('demo123');
     await page.getByRole('button', { name: /^Sign in$/i }).click();
     await page.getByRole('button', { name: /^Settings$/i }).first().click();
+    await expect(page.getByRole('tab', { name: /Company/i })).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('tab', { name: /^Branding$/i }).click();
     await expect(page.getByText(/Branding & theme/i)).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator('input').filter({ hasText: '' }).first()).toBeVisible();
     await expect(page.getByRole('textbox').first()).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('tab', { name: /^Holidays$/i }).click();
     await expect(
       page.getByText(/Republic Day|Independence Day|Christmas|New Year|Company Foundation|Diwali/i).first(),
     ).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/Document templates|Generate document/i).first()).toBeVisible();
+    await page.getByRole('tab', { name: /^Templates$/i }).click();
+    await expect(page.getByText(/Document templates|Generate document|HR document templates/i).first()).toBeVisible();
   });
 
   test('employee dashboard shows API holidays and location capture', async ({ page }) => {
