@@ -491,6 +491,14 @@ export const holidaysApi = {
   remove: (id: number) => api<{ ok: boolean }>(`/api/holidays/${id}`, { method: 'DELETE' }),
 };
 
+export const aiApi = {
+  chat: (message: string, context?: { module?: string }) =>
+    api<{ reply: string; suggestions: string[]; role: string; module: string | null }>('/api/ai/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message, context }),
+    }),
+};
+
 export const leaveTypesApi = {
   list: () => api<{ types: Record<string, unknown>[] }>('/api/leave/types'),
   create: (payload: Record<string, unknown>) =>

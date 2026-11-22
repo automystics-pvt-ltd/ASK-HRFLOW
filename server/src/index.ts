@@ -22,6 +22,7 @@ import approvalsRoutes from './routes/approvals.js';
 import claimsRoutes from './routes/claims.js';
 import activityRoutes from './routes/activity.js';
 import cardsRoutes from './routes/cards.js';
+import aiRoutes from './routes/ai.js';
 import { runLeaveAutoApprove } from './lib/leave-auto-approve.js';
 import {
   payrollRouter,
@@ -63,6 +64,7 @@ app.use('/api/approvals', approvalsRoutes);
 app.use('/api/claims', claimsRoutes);
 app.use('/api/activity', activityRoutes);
 app.use('/api/cards', cardsRoutes);
+app.use('/api/ai', aiRoutes);
 app.use('/api/payroll', payrollRouter);
 app.use('/api/recruitment', recruitmentRouter);
 app.use('/api/performance', performanceRouter);
