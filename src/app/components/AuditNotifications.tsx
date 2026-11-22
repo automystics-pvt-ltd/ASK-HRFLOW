@@ -5,6 +5,7 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { useAccess } from '../lib/access';
 import { approvalsApi } from '../lib/api';
+import { ApprovalReasonDialog } from './ApprovalReasonDialog';
 import { toast } from 'sonner';
 import { Download, Bell, CheckCheck, Search, ShieldCheck, CheckCircle, Megaphone, AlertTriangle } from 'lucide-react';
 
@@ -46,6 +47,7 @@ const icons = { approval: CheckCircle, access: ShieldCheck, announcement: Megaph
 export function NotificationsPage() {
   const { notices, user, markRead, unread } = useAccess();
   const [inbox, setInbox] = useState<Record<string, unknown>[]>([]);
+  const [reasonTarget, setReasonTarget] = useState<{ id: number; action: 'approve' | 'reject' } | null>(null);
 
   const loadInbox = () => {
     approvalsApi
@@ -80,32 +82,13 @@ export function NotificationsPage() {
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      void approvalsApi
-                        .action(Number(item.id), 'approve')
-                        .then(() => {
-                          toast.success('Approved');
-                          loadInbox();
-                        })
-                        .catch((e) => toast.error(e instanceof Error ? e.message : 'Failed'));
-                    }}
-                  >
+                  <Button size="sm" onClick={() => setReasonTarget({ id: Number(item.id), action: 'approve' })}>
                     Approve
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => {
-                      void approvalsApi
-                        .action(Number(item.id), 'reject')
-                        .then(() => {
-                          toast.success('Rejected');
-                          loadInbox();
-                        })
-                        .catch((e) => toast.error(e instanceof Error ? e.message : 'Failed'));
-                    }}
+                    onClick={() => setReasonTarget({ id: Number(item.id), action: 'reject' })}
                   >
                     Reject
                   </Button>
@@ -115,6 +98,21 @@ export function NotificationsPage() {
           </CardContent>
         </Card>
       )}
+      <ApprovalReasonDialog
+        open={Boolean(reasonTarget)}
+        title={reasonTarget?.action === 'approve' ? 'Approval reason' : 'Rejection reason'}
+        actionLabel={reasonTarget?.action === 'approve' ? 'Approve' : 'Reject'}
+        onOpenChange={(open) => {
+          if (!open) setReasonTarget(null);
+        }}
+        onConfirm={async (comment) => {
+          if (!reasonTarget) return;
+          await approvalsApi.action(reasonTarget.id, reasonTarget.action, comment);
+          toast.success(reasonTarget.action === 'approve' ? 'Approved' : 'Rejected');
+          loadInbox();
+          setReasonTarget(null);
+        }}
+      />
 
       {notices.length === 0 ? (
         <Card className="rounded-xl"><CardContent className="p-10 text-center text-muted-foreground"><Bell className="w-8 h-8 mx-auto mb-2" />You’re all caught up.</CardContent></Card>

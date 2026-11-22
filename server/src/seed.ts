@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
-import { pool, query, insert, DEFAULT_TENANT } from './db.js';
+import { pool, query, queryOne, insert, DEFAULT_TENANT } from './db.js';
 import { defaultRolePermissions, type Role } from './lib/permissions.js';
 import { seedDocumentTemplates } from './routes/hr-documents.js';
 import { seedApprovalWorkflows } from './routes/approvals.js';
@@ -33,12 +33,35 @@ async function runSchema() {
   if (fs.existsSync(mig002)) {
     await pool.query(fs.readFileSync(mig002, 'utf8'));
   }
+  const mig003 = path.join(__dirname, '..', 'migrations', '003_advanced_leave_payroll_claims.sql');
+  if (fs.existsSync(mig003)) {
+    await pool.query(fs.readFileSync(mig003, 'utf8'));
+  }
   await ensureColumn('leave_types', 'carry_forward', 'TINYINT(1) NOT NULL DEFAULT 0');
   await ensureColumn('leave_types', 'allow_half_day', 'TINYINT(1) NOT NULL DEFAULT 1');
   await ensureColumn('leave_types', 'eligibility_note', 'VARCHAR(255) NULL');
   await ensureColumn('leave_types', 'policy_json', 'JSON NULL');
   await ensureColumn('attendance_events', 'location_address', 'VARCHAR(512) NULL');
   await ensureColumn('attendance_days', 'location_address', 'VARCHAR(512) NULL');
+  await ensureColumn('employees', 'manager_user_id', 'VARCHAR(32) NULL');
+  await ensureColumn('employees', 'employment_type', "VARCHAR(64) NULL DEFAULT 'full_time'");
+  await ensureColumn('employees', 'designation', 'VARCHAR(120) NULL');
+  await ensureColumn('leave_requests', 'half_day', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await ensureColumn('leave_requests', 'auto_approved', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await ensureColumn('approval_actions', 'comment', 'TEXT NULL');
+  try {
+    await pool.query(
+      `ALTER TABLE users MODIFY COLUMN role ENUM('admin','hr','employee','manager') NOT NULL DEFAULT 'employee'`,
+    );
+    await pool.query(
+      `ALTER TABLE role_permissions MODIFY COLUMN role ENUM('admin','hr','employee','manager') NOT NULL`,
+    );
+    await pool.query(
+      `ALTER TABLE approval_steps MODIFY COLUMN approver_role ENUM('admin','hr','employee','manager') NOT NULL DEFAULT 'hr'`,
+    );
+  } catch {
+    /* ENUM may already include manager */
+  }
 }
 
 const allDepts = ['Executive', 'Engineering', 'Product', 'Design', 'Sales', 'Marketing', 'HR', 'Finance'];
@@ -46,7 +69,7 @@ const hrDepts = ['Engineering', 'Product', 'Design', 'Sales', 'HR'];
 
 async function seedRolePermissions() {
   await query('DELETE FROM role_permissions WHERE tenant_id = $1', [DEFAULT_TENANT]);
-  for (const role of ['admin', 'hr', 'employee'] as Role[]) {
+  for (const role of ['admin', 'hr', 'employee', 'manager'] as Role[]) {
     const perms = { ...defaultRolePermissions[role] };
     if (role === 'hr') {
       perms.access = ['read', 'create', 'update'];
@@ -70,6 +93,16 @@ async function seed() {
   const users: [string, string, string, string, Role, string, number, string][] = [
     ['u-admin', 'Alvi', 'alvi@automystics.com', hash, 'admin', 'Executive', 1, JSON.stringify(allDepts)],
     ['u-hr', 'Priya Nair', 'priya.nair@automystics.com', hash, 'hr', 'HR', 1, JSON.stringify(hrDepts)],
+    [
+      'u-mgr',
+      'Ananya Manager',
+      'ananya.manager@automystics.com',
+      hash,
+      'manager',
+      'Engineering',
+      1,
+      JSON.stringify(['Engineering', 'Product', 'Design']),
+    ],
     ['u-emp', 'Rahul Verma', 'rahul.verma@automystics.com', hash, 'employee', 'Engineering', 1, '[]'],
     ['u-emp2', 'Sarah Johnson', 'sarah.johnson@automystics.com', hash, 'employee', 'Engineering', 1, '[]'],
     ['u-emp3', 'Lisa Brown', 'lisa.brown@automystics.com', hash, 'employee', 'Design', 0, '[]'],
@@ -112,10 +145,29 @@ async function seed() {
 
   await query('DELETE FROM employees WHERE tenant_id = $1', [DEFAULT_TENANT]);
   for (const e of employees) {
+    const managerUserId = e[0] === 'u-emp' || e[0] === 'u-emp2' || e[0] === 'u-emp3' ? 'u-mgr' : null;
     await query(
-      `INSERT INTO employees (tenant_id, user_id, name, email, phone, department, position, status, join_date, salary, location, country, manager, skills)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-      [DEFAULT_TENANT, e[0], e[1], e[2], e[3], e[4], e[5], e[6], e[7], e[8], e[9], e[10], e[11], e[12]],
+      `INSERT INTO employees
+       (tenant_id, user_id, name, email, phone, department, position, status, join_date, salary, location, country, manager, skills, manager_user_id, designation, employment_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'full_time')`,
+      [
+        DEFAULT_TENANT,
+        e[0],
+        e[1],
+        e[2],
+        e[3],
+        e[4],
+        e[5],
+        e[6],
+        e[7],
+        e[8],
+        e[9],
+        e[10],
+        e[11],
+        e[12],
+        managerUserId,
+        e[5],
+      ],
     );
   }
 
@@ -206,6 +258,138 @@ async function seed() {
 
   await seedDocumentTemplates('u-admin');
   await seedApprovalWorkflows();
+
+  // Prefer manager as first leave approver when present
+  const leaveWf = await queryOne<{ id: number }>(
+    'SELECT id FROM approval_workflows WHERE tenant_id = $1 AND module_key = $2',
+    [DEFAULT_TENANT, 'leave'],
+  );
+  if (leaveWf) {
+    await query('DELETE FROM approval_steps WHERE workflow_id = $1', [leaveWf.id]);
+    await query(
+      `INSERT INTO approval_steps (workflow_id, step_order, approver_role, label) VALUES
+       ($1,1,'manager','Manager review'),
+       ($1,2,'hr','HR review')`,
+      [leaveWf.id],
+    );
+  }
+
+  await query(
+    `INSERT INTO leave_policy_settings
+     (tenant_id, auto_approve_enabled, auto_approve_days, count_weekends, count_holidays, require_approval_comment)
+     VALUES ($1,1,20,0,0,1)
+     ON DUPLICATE KEY UPDATE auto_approve_days = VALUES(auto_approve_days)`,
+    [DEFAULT_TENANT],
+  );
+
+  const expenseCats: [string, string, number | null][] = [
+    ['mobile', 'Mobile', 2000],
+    ['internet', 'Internet', 1500],
+    ['travel', 'Travel', null],
+    ['fuel', 'Fuel', 5000],
+    ['food', 'Food', 1000],
+    ['accommodation', 'Accommodation', null],
+    ['other', 'Other', null],
+  ];
+  for (const [code, name, max] of expenseCats) {
+    await query(
+      `INSERT INTO expense_categories (tenant_id, code, name, max_amount, require_receipt, active)
+       VALUES ($1,$2,$3,$4,1,1)
+       ON DUPLICATE KEY UPDATE name = VALUES(name), max_amount = VALUES(max_amount)`,
+      [DEFAULT_TENANT, code, name, max],
+    );
+  }
+
+  const salComps: [string, string, string, number, number, number][] = [
+    ['basic', 'Basic', 'earning', 0, 0, 1],
+    ['hra', 'HRA', 'earning', 1, 40, 1],
+    ['pf', 'Provident Fund', 'deduction', 1, 12, 0],
+    ['esi', 'ESI', 'deduction', 1, 0.75, 0],
+    ['pt', 'Professional Tax', 'deduction', 0, 200, 0],
+  ];
+  for (const [code, name, kind, isPct, val, taxable] of salComps) {
+    await query(
+      `INSERT INTO salary_components (tenant_id, code, name, kind, is_percent, default_value, taxable, active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,1)
+       ON DUPLICATE KEY UPDATE name = VALUES(name), default_value = VALUES(default_value)`,
+      [DEFAULT_TENANT, code, name, kind, isPct, val, taxable],
+    );
+  }
+
+  const effectiveFrom = `${new Date().getFullYear()}-01-01`;
+  const statRates: [string, string, number, number][] = [
+    ['pf', 'PF employee', 12, 0],
+    ['esi', 'ESI employee', 0.75, 0],
+    ['pt', 'Professional Tax', 0, 200],
+  ];
+  for (const [code, name, pct, flat] of statRates) {
+    const exists = await queryOne(
+      `SELECT id FROM statutory_rates WHERE tenant_id = $1 AND code = $2 AND effective_from = $3`,
+      [DEFAULT_TENANT, code, effectiveFrom],
+    );
+    if (!exists) {
+      await query(
+        `INSERT INTO statutory_rates (tenant_id, code, name, rate_percent, flat_amount, effective_from, active)
+         VALUES ($1,$2,$3,$4,$5,$6,1)`,
+        [DEFAULT_TENANT, code, name, pct, flat, effectiveFrom],
+      );
+    }
+  }
+
+  // Seed salary structures from employee annual salary (monthly basic)
+  const activeEmps = await query<{ id: number; salary: string | number }>(
+    `SELECT id, salary FROM employees WHERE tenant_id = $1 AND status = 'Active'`,
+    [DEFAULT_TENANT],
+  );
+  for (const emp of activeEmps) {
+    const monthly = Math.round((Number(emp.salary || 0) / 12) * 100) / 100;
+    const existingStruct = await queryOne(
+      `SELECT id FROM employee_salary_structures WHERE tenant_id = $1 AND employee_id = $2 AND effective_from = $3`,
+      [DEFAULT_TENANT, emp.id, effectiveFrom],
+    );
+    if (!existingStruct && monthly > 0) {
+      await query(
+        `INSERT INTO employee_salary_structures
+         (tenant_id, employee_id, effective_from, basic, components_json, notes, created_by)
+         VALUES ($1,$2,$3,$4,$5,'Seeded from annual salary','u-admin')`,
+        [
+          DEFAULT_TENANT,
+          emp.id,
+          effectiveFrom,
+          monthly,
+          JSON.stringify([
+            { code: 'hra', name: 'HRA', kind: 'earning', isPercent: true, value: 40 },
+            { code: 'pf', name: 'PF', kind: 'deduction', isPercent: true, value: 12 },
+          ]),
+        ],
+      );
+    }
+  }
+
+  const idCardHtml = `<div style="font-family:sans-serif;padding:12px;border:1px solid #1e3a5f;width:320px">
+  <h2 style="margin:0;color:#1e3a5f">{{company_name}}</h2>
+  <p style="margin:8px 0 0"><strong>{{employee_name}}</strong></p>
+  <p style="margin:4px 0;font-size:13px">{{designation}} · {{department}}</p>
+  <p style="margin:4px 0;font-size:12px">ID: {{employee_id}} · {{email}}</p>
+</div>`;
+  const bizCardHtml = `<div style="font-family:sans-serif;padding:16px;background:#0a2a7a;color:#fff;width:340px">
+  <h3 style="margin:0">{{employee_name}}</h3>
+  <p style="margin:4px 0;opacity:.9">{{designation}}</p>
+  <p style="margin:12px 0 0;font-size:12px">{{company_name}}</p>
+  <p style="margin:4px 0;font-size:12px">{{email}} · {{phone}}</p>
+</div>`;
+  await query(
+    `INSERT INTO card_templates (id, tenant_id, card_kind, name, front_html, back_html, width_mm, height_mm, version, active)
+     VALUES ('card-id-default',$1,'id_card','Standard ID Card',$2,NULL,86,54,1,1)
+     ON DUPLICATE KEY UPDATE front_html = VALUES(front_html), active = 1`,
+    [DEFAULT_TENANT, idCardHtml],
+  );
+  await query(
+    `INSERT INTO card_templates (id, tenant_id, card_kind, name, front_html, back_html, width_mm, height_mm, version, active)
+     VALUES ('card-biz-default',$1,'business_card','Standard Business Card',$2,NULL,90,50,1,1)
+     ON DUPLICATE KEY UPDATE front_html = VALUES(front_html), active = 1`,
+    [DEFAULT_TENANT, bizCardHtml],
+  );
 
   const yearNow = new Date().getFullYear();
   const yearNext = yearNow + 1;

@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { accessApi, auditApi, authApi, noticesApi, ApiError } from './api';
 
-export type Role = 'admin' | 'hr' | 'employee';
+export type Role = 'admin' | 'hr' | 'employee' | 'manager';
 export type Action = 'create' | 'read' | 'update' | 'delete' | 'approve' | 'export';
 export const actions: Action[] = ['create', 'read', 'update', 'delete', 'approve', 'export'];
 
@@ -52,12 +52,25 @@ export const defaultRolePermissions: Record<Role, PermissionSet> = {
     notifications: ['read'],
     settings: ['read'],
   },
+  manager: {
+    ...empty(),
+    dashboard: ['read'],
+    employees: ['read'],
+    attendance: ['create', 'read', 'approve', 'export'],
+    payroll: ['read'],
+    performance: ['read'],
+    engagement: ['read'],
+    notifications: ['read', 'approve'],
+    reports: ['read', 'export'],
+    settings: ['read'],
+  },
 };
 
 export const roleLabels: Record<Role, { label: string; description: string }> = {
   admin: { label: 'Admin', description: 'Full system control' },
   hr: { label: 'HR', description: 'Configurable administrative access' },
   employee: { label: 'Employee', description: 'Self-service access' },
+  manager: { label: 'Manager', description: 'Team attendance, leave and claim approvals' },
 };
 
 export const departments = ['Executive', 'Engineering', 'Product', 'Design', 'Sales', 'Marketing', 'HR', 'Finance'];

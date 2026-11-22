@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Button } from './ui/button';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { approvalsApi, auditApi, dashboardApi, performanceApi } from '../lib/api';
+import { ApprovalReasonDialog } from './ApprovalReasonDialog';
 import { toast } from 'sonner';
 import {
   Users, Clock, DollarSign, TrendingUp, UserCheck, CalendarDays, Award, AlertCircle,
@@ -128,10 +129,18 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
     }
   }, [can, loadInbox]);
 
-  const decide = async (id: number, action: 'approve' | 'reject') => {
+  const [reasonTarget, setReasonTarget] = useState<{ id: number; action: 'approve' | 'reject' } | null>(null);
+
+  const decide = (id: number, action: 'approve' | 'reject') => {
+    setReasonTarget({ id, action });
+  };
+
+  const confirmDecide = async (comment: string) => {
+    if (!reasonTarget) return;
+    const { id, action } = reasonTarget;
     setActingId(id);
     try {
-      await approvalsApi.action(id, action);
+      await approvalsApi.action(id, action, comment);
       toast.success(action === 'approve' ? 'Approved' : 'Rejected');
       loadInbox();
       dashboardApi
@@ -147,6 +156,7 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
       toast.error(e instanceof Error ? e.message : 'Action failed');
     } finally {
       setActingId(null);
+      setReasonTarget(null);
     }
   };
 
@@ -425,6 +435,15 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
           </Button>
         </CardContent>
       </Card>
+      <ApprovalReasonDialog
+        open={Boolean(reasonTarget)}
+        title={reasonTarget?.action === 'approve' ? 'Approval reason' : 'Rejection reason'}
+        actionLabel={reasonTarget?.action === 'approve' ? 'Approve' : 'Reject'}
+        onOpenChange={(open) => {
+          if (!open) setReasonTarget(null);
+        }}
+        onConfirm={confirmDecide}
+      />
     </div>
   );
 }

@@ -2,13 +2,18 @@ import { Router } from 'express';
 import { DEFAULT_TENANT, insert, query, queryOne } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
+import { getLeavePolicySettings } from '../lib/leave-policy.js';
+import { runLeaveAutoApprove } from '../lib/leave-auto-approve.js';
+
+export { runLeaveAutoApprove };
 
 const router = Router();
 
 export async function seedApprovalWorkflows() {
   const defaults = [
-    { moduleKey: 'leave', name: 'Leave approval', role: 'hr' as const },
+    { moduleKey: 'leave', name: 'Leave approval', role: 'manager' as const },
     { moduleKey: 'timesheet', name: 'Timesheet approval', role: 'hr' as const },
+    { moduleKey: 'claim', name: 'Expense claim approval', role: 'manager' as const },
   ];
   for (const d of defaults) {
     const existing = await queryOne<{ id: number }>(
@@ -22,15 +27,14 @@ export async function seedApprovalWorkflows() {
         [DEFAULT_TENANT, d.moduleKey, d.name],
       );
     }
-    const step = await queryOne(
-      'SELECT id FROM approval_steps WHERE workflow_id = $1 AND step_order = 1',
-      [workflowId],
-    );
+    const step = await queryOne('SELECT id FROM approval_steps WHERE workflow_id = $1 AND step_order = 1', [
+      workflowId,
+    ]);
     if (!step) {
       await query(
         `INSERT INTO approval_steps (workflow_id, step_order, approver_role, label)
          VALUES ($1,1,$2,$3)`,
-        [workflowId, d.role, `${d.name} — HR`],
+        [workflowId, d.role, `${d.name} — ${d.role === 'manager' ? 'Manager' : 'HR'}`],
       );
     }
   }
@@ -42,12 +46,37 @@ export async function createApprovalRequest(opts: {
   entityId: string | number;
   requesterId: string;
   payload?: unknown;
+  preferredApproverRole?: string;
+  preferredApproverUserId?: string;
 }): Promise<number | null> {
   const wf = await queryOne<{ id: number; active: number }>(
     'SELECT id, active FROM approval_workflows WHERE tenant_id = $1 AND module_key = $2',
     [DEFAULT_TENANT, opts.moduleKey],
   );
   if (!wf || !Number(wf.active)) return null;
+
+  // Prefer routing metadata inside payload (avoids mutating shared workflow steps)
+  const payloadObj =
+    opts.payload && typeof opts.payload === 'object'
+      ? { ...(opts.payload as Record<string, unknown>) }
+      : opts.payload != null
+        ? { value: opts.payload }
+        : {};
+  if (opts.preferredApproverRole) payloadObj.preferredApproverRole = opts.preferredApproverRole;
+  if (opts.preferredApproverUserId) payloadObj.preferredApproverUserId = opts.preferredApproverUserId;
+
+  // When HR is preferred (no manager), ensure step 1 can be HR for this workflow if only manager exists
+  if (opts.preferredApproverRole === 'hr' && !opts.preferredApproverUserId) {
+    const step1 = await queryOne<{ id: number; approver_role: string }>(
+      'SELECT id, approver_role FROM approval_steps WHERE workflow_id = $1 AND step_order = 1',
+      [wf.id],
+    );
+    if (step1 && step1.approver_role === 'manager') {
+      // leave step as manager; inbox falls back to HR/admin when no manager assigned
+      payloadObj.preferredApproverRole = 'hr';
+    }
+  }
+
   const id = await insert(
     `INSERT INTO approval_requests
      (tenant_id, workflow_id, module_key, entity_type, entity_id, requester_id, status, current_step, payload)
@@ -59,7 +88,7 @@ export async function createApprovalRequest(opts: {
       opts.entityType,
       String(opts.entityId),
       opts.requesterId,
-      opts.payload != null ? JSON.stringify(opts.payload) : null,
+      JSON.stringify(payloadObj),
     ],
   );
   return id;
@@ -118,21 +147,25 @@ router.put('/workflows/:id', requireAuth, requirePermission('settings', 'update'
   );
   if (Array.isArray(b.steps)) {
     await query('DELETE FROM approval_steps WHERE workflow_id = $1', [req.params.id]);
-    for (const s of b.steps as { stepOrder?: number; approverRole?: string; approverUserId?: string; label?: string }[]) {
+    for (const s of b.steps as {
+      stepOrder?: number;
+      approverRole?: string;
+      approverUserId?: string;
+      label?: string;
+    }[]) {
       await query(
         `INSERT INTO approval_steps (workflow_id, step_order, approver_role, approver_user_id, label)
          VALUES ($1,$2,$3,$4,$5)`,
-        [
-          req.params.id,
-          s.stepOrder ?? 1,
-          s.approverRole || 'hr',
-          s.approverUserId ?? null,
-          s.label ?? null,
-        ],
+        [req.params.id, s.stepOrder ?? 1, s.approverRole || 'hr', s.approverUserId ?? null, s.label ?? null],
       );
     }
   }
   res.json({ ok: true });
+});
+
+router.get('/run-auto-approve', requireAuth, requirePermission('settings', 'update'), async (_req, res) => {
+  const result = await runLeaveAutoApprove();
+  res.json(result);
 });
 
 router.get('/inbox', requireAuth, async (req, res) => {
@@ -147,11 +180,21 @@ router.get('/inbox', requireAuth, async (req, res) => {
      JOIN approval_workflows aw ON aw.id = ar.workflow_id
      JOIN approval_steps s ON s.workflow_id = ar.workflow_id AND s.step_order = ar.current_step
      LEFT JOIN users u ON u.id = ar.requester_id
+     LEFT JOIN employees emp ON emp.tenant_id = ar.tenant_id AND emp.user_id = ar.requester_id
      WHERE ar.tenant_id = $1 AND ar.status = 'pending'
        AND (
          (s.approver_user_id IS NOT NULL AND s.approver_user_id = $2)
          OR (s.approver_user_id IS NULL AND s.approver_role = $3)
          OR ($3 = 'admin')
+         OR ($3 = 'hr' AND s.approver_role IN ('hr','manager'))
+         OR (
+           $3 = 'manager'
+           AND s.approver_role = 'manager'
+           AND emp.manager_user_id = $2
+         )
+         OR (
+           JSON_UNQUOTE(JSON_EXTRACT(ar.payload, '$.preferredApproverUserId')) = $2
+         )
        )
      ORDER BY ar.created_at DESC`,
     [DEFAULT_TENANT, userId, role],
@@ -176,7 +219,9 @@ router.get('/inbox', requireAuth, async (req, res) => {
           ? 'Leave Request'
           : r.module_key === 'timesheet'
             ? 'Timesheet'
-            : String(r.workflow_name ?? r.module_key));
+            : r.module_key === 'claim'
+              ? 'Expense Claim'
+              : String(r.workflow_name ?? r.module_key));
       return {
         id: r.id,
         workflowId: r.workflow_id,
@@ -212,12 +257,30 @@ router.post('/:id/action', requireAuth, async (req, res) => {
   );
   if (!ar) return res.status(404).json({ error: 'Not found' });
   if (ar.status !== 'pending') return res.status(400).json({ error: 'Request already decided' });
+  if (ar.requester_id === req.user!.sub) {
+    return res.status(403).json({ error: 'Cannot approve your own request' });
+  }
+
+  const settings = await getLeavePolicySettings();
+  const needsComment =
+    ar.module_key === 'leave' || settings.requireApprovalComment || ar.module_key === 'claim';
+  if (needsComment && !String(comment || '').trim()) {
+    return res.status(400).json({ error: 'Comment is required' });
+  }
 
   const role = req.user!.role;
-  const allowed =
+  let allowed =
     role === 'admin' ||
     (ar.approver_user_id && ar.approver_user_id === req.user!.sub) ||
-    (!ar.approver_user_id && ar.approver_role === role);
+    (!ar.approver_user_id && ar.approver_role === role) ||
+    (role === 'hr' && ar.approver_role === 'manager');
+  if (role === 'manager' && ar.approver_role === 'manager' && !ar.approver_user_id) {
+    const emp = await queryOne(
+      'SELECT id FROM employees WHERE tenant_id = $1 AND user_id = $2 AND manager_user_id = $3',
+      [DEFAULT_TENANT, ar.requester_id, req.user!.sub],
+    );
+    allowed = Boolean(emp);
+  }
   if (!allowed) return res.status(403).json({ error: 'Forbidden' });
 
   await query(
@@ -238,14 +301,15 @@ router.post('/:id/action', requireAuth, async (req, res) => {
       ]);
     } else {
       await query(`UPDATE approval_requests SET status = 'approved', updated_at = NOW() WHERE id = $1`, [ar.id]);
-      // Sync leave decision when leave workflow completes
       if (ar.module_key === 'leave' && ar.entity_type === 'leave_request') {
         const leave = await queryOne('SELECT * FROM leave_requests WHERE id = $1 AND tenant_id = $2', [
           ar.entity_id,
           DEFAULT_TENANT,
         ]);
         if (leave && leave.status === 'Pending') {
-          const reviewer = await queryOne<{ name: string }>('SELECT name FROM users WHERE id = $1', [req.user!.sub]);
+          const reviewer = await queryOne<{ name: string }>('SELECT name FROM users WHERE id = $1', [
+            req.user!.sub,
+          ]);
           await query(`UPDATE leave_requests SET status = 'Approved', comment = $1, decided_by = $2 WHERE id = $3`, [
             comment ?? null,
             reviewer?.name,
@@ -261,6 +325,12 @@ router.post('/:id/action', requireAuth, async (req, res) => {
           }
         }
       }
+      if (ar.module_key === 'claim' && ar.entity_type === 'expense_claim') {
+        await query(
+          `UPDATE expense_claims SET status = 'approved', updated_at = NOW() WHERE id = $1 AND status = 'pending'`,
+          [ar.entity_id],
+        );
+      }
     }
   } else if (action === 'reject') {
     await query(`UPDATE approval_requests SET status = 'rejected', updated_at = NOW() WHERE id = $1`, [ar.id]);
@@ -271,10 +341,22 @@ router.post('/:id/action', requireAuth, async (req, res) => {
         [comment ?? null, reviewer?.name, ar.entity_id],
       );
     }
+    if (ar.module_key === 'claim' && ar.entity_type === 'expense_claim') {
+      await query(
+        `UPDATE expense_claims SET status = 'rejected', updated_at = NOW() WHERE id = $1 AND status = 'pending'`,
+        [ar.entity_id],
+      );
+    }
   } else {
     await query(`UPDATE approval_requests SET status = 'changes_requested', updated_at = NOW() WHERE id = $1`, [
       ar.id,
     ]);
+    if (ar.module_key === 'claim' && ar.entity_type === 'expense_claim') {
+      await query(
+        `UPDATE expense_claims SET status = 'clarification', updated_at = NOW() WHERE id = $1 AND status = 'pending'`,
+        [ar.entity_id],
+      );
+    }
   }
 
   res.json({ ok: true });

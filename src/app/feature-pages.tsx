@@ -49,6 +49,7 @@ import {
   Palette,
   Trash2,
 } from 'lucide-react';
+import { LeavePolicyPanel, CardsPanel } from './components/AdvancedHRPanels';
 
 function PayrollCurrencyAdmin() {
   const { role } = useRole();
@@ -903,6 +904,13 @@ export function SettingsPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {(acc.role === 'admin' || acc.role === 'hr') && (
+        <>
+          <LeavePolicyPanel />
+          <CardsPanel />
+        </>
       )}
 
       {(can.canManageCompany || acc.can('attendance', 'update')) && (

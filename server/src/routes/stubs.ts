@@ -7,6 +7,7 @@ import fs from 'fs';
 import { DEFAULT_TENANT, insert, query, queryOne } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
+import { calculateEmployeePayroll } from '../lib/payroll-calc.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
@@ -37,50 +38,196 @@ payrollRouter.get('/payslips', requireAuth, requirePermission('payroll', 'read')
     req.user!.sub,
   ]);
   const canAll = req.user!.role === 'admin' || req.user!.role === 'hr';
-  const rows = canAll
-    ? await query(
-        `SELECT p.*, e.name AS employee_name FROM payslips p
-         JOIN employees e ON e.id = p.employee_id
-         WHERE p.tenant_id = $1 ORDER BY p.issued_at DESC`,
-        [DEFAULT_TENANT],
-      )
-    : emp
+  // Managers must not see other employees' salary/payslip data
+  if (req.user!.role === 'manager' || !canAll) {
+    const rows = emp
       ? await query('SELECT * FROM payslips WHERE tenant_id = $1 AND employee_id = $2 ORDER BY issued_at DESC', [
           DEFAULT_TENANT,
           emp.id,
         ])
       : [];
+    return res.json({ payslips: rows });
+  }
+  const rows = await query(
+    `SELECT p.*, e.name AS employee_name FROM payslips p
+     JOIN employees e ON e.id = p.employee_id
+     WHERE p.tenant_id = $1 ORDER BY p.issued_at DESC`,
+    [DEFAULT_TENANT],
+  );
   res.json({ payslips: rows });
 });
+
+payrollRouter.get('/salary-structure/:employeeId', requireAuth, requirePermission('payroll', 'read'), async (req, res) => {
+  const rows = await query(
+    `SELECT * FROM employee_salary_structures
+     WHERE tenant_id = $1 AND employee_id = $2 ORDER BY effective_from DESC`,
+    [DEFAULT_TENANT, req.params.employeeId],
+  );
+  res.json({
+    structures: rows.map((r) => ({
+      id: r.id,
+      employeeId: r.employee_id,
+      effectiveFrom: r.effective_from,
+      basic: Number(r.basic),
+      components:
+        typeof r.components_json === 'string' ? JSON.parse(r.components_json) : r.components_json,
+      notes: r.notes,
+      createdAt: r.created_at,
+    })),
+  });
+});
+
+payrollRouter.put('/salary-structure/:employeeId', requireAuth, requirePermission('payroll', 'update'), async (req, res) => {
+  const { effectiveFrom, basic, components, notes } = req.body || {};
+  if (!effectiveFrom || basic == null) return res.status(400).json({ error: 'effectiveFrom and basic required' });
+  const emp = await queryOne('SELECT id FROM employees WHERE id = $1 AND tenant_id = $2', [
+    req.params.employeeId,
+    DEFAULT_TENANT,
+  ]);
+  if (!emp) return res.status(404).json({ error: 'Employee not found' });
+  const id = await insert(
+    `INSERT INTO employee_salary_structures
+     (tenant_id, employee_id, effective_from, basic, components_json, notes, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+    [
+      DEFAULT_TENANT,
+      req.params.employeeId,
+      effectiveFrom,
+      Number(basic),
+      JSON.stringify(components ?? {}),
+      notes ?? null,
+      req.user!.sub,
+    ],
+  );
+  res.json({ id });
+});
+
+payrollRouter.get('/components', requireAuth, requirePermission('payroll', 'read'), async (_req, res) => {
+  const rows = await query(
+    'SELECT * FROM salary_components WHERE tenant_id = $1 AND active = 1 ORDER BY kind, name',
+    [DEFAULT_TENANT],
+  );
+  res.json({ components: rows });
+});
+
+payrollRouter.get('/statutory-rates', requireAuth, requirePermission('payroll', 'read'), async (_req, res) => {
+  const rows = await query(
+    'SELECT * FROM statutory_rates WHERE tenant_id = $1 AND active = 1 ORDER BY code, effective_from DESC',
+    [DEFAULT_TENANT],
+  );
+  res.json({ rates: rows });
+});
+
 payrollRouter.post('/runs', requireAuth, requirePermission('payroll', 'update'), async (req, res) => {
   const { periodLabel, periodStart, periodEnd } = req.body || {};
   if (!periodLabel || !periodStart || !periodEnd) return res.status(400).json({ error: 'Missing period fields' });
-  const emps = await query<{ id: number; salary: string | number }>(
-    `SELECT id, salary FROM employees WHERE tenant_id = $1 AND status = 'Active'`,
+  const emps = await query<{ id: number; salary: string | number; user_id: string | null }>(
+    `SELECT id, salary, user_id FROM employees WHERE tenant_id = $1 AND status = 'Active'`,
     [DEFAULT_TENANT],
   );
-  const total = emps.reduce((s, e) => s + Number(e.salary || 0) / 12, 0);
+
+  let total = 0;
+  const computed: { empId: number; net: number; breakdown: Record<string, unknown> }[] = [];
+  for (const e of emps) {
+    const result = await calculateEmployeePayroll({
+      employeeId: e.id,
+      userId: e.user_id,
+      periodStart,
+      periodEnd,
+      annualSalaryFallback: Number(e.salary || 0),
+    });
+    total += result.net;
+    computed.push({ empId: e.id, net: result.net, breakdown: result as unknown as Record<string, unknown> });
+  }
+
   const runId = await insert(
     `INSERT INTO payroll_runs (tenant_id, period_label, period_start, period_end, status, total_amount)
      VALUES ($1,$2,$3,$4,'processed',$5)`,
     [DEFAULT_TENANT, periodLabel, periodStart, periodEnd, total],
   );
-  for (const e of emps) {
-    const gross = Number(e.salary || 0) / 12;
-    const net = Math.round(gross * 0.8 * 100) / 100;
+  for (const c of computed) {
     await query(
       `INSERT INTO payslips (tenant_id, payroll_run_id, employee_id, net_pay, breakdown)
        VALUES ($1,$2,$3,$4,$5)`,
-      [
-        DEFAULT_TENANT,
-        runId,
-        e.id,
-        net,
-        JSON.stringify({ gross: Math.round(gross * 100) / 100, deductions: Math.round((gross - net) * 100) / 100 }),
-      ],
+      [DEFAULT_TENANT, runId, c.empId, c.net, JSON.stringify(c.breakdown)],
     );
   }
   res.status(201).json({ id: runId, total, employeesProcessed: emps.length });
+});
+
+payrollRouter.get('/payslips/:id/html', requireAuth, requirePermission('payroll', 'read'), async (req, res) => {
+  const slip = await queryOne(
+    `SELECT p.*, e.name AS employee_name, e.department, e.position, e.email, pr.period_label, pr.period_start, pr.period_end
+     FROM payslips p
+     JOIN employees e ON e.id = p.employee_id
+     JOIN payroll_runs pr ON pr.id = p.payroll_run_id
+     WHERE p.id = $1 AND p.tenant_id = $2`,
+    [req.params.id, DEFAULT_TENANT],
+  );
+  if (!slip) return res.status(404).json({ error: 'Not found' });
+
+  const canAll = req.user!.role === 'admin' || req.user!.role === 'hr';
+  if (!canAll) {
+    const self = await queryOne<{ id: number }>('SELECT id FROM employees WHERE tenant_id = $1 AND user_id = $2', [
+      DEFAULT_TENANT,
+      req.user!.sub,
+    ]);
+    if (!self || self.id !== slip.employee_id) return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  let breakdownRaw: Record<string, unknown> = {};
+  try {
+    breakdownRaw =
+      typeof slip.breakdown === 'string'
+        ? (JSON.parse(slip.breakdown) as Record<string, unknown>)
+        : ((slip.breakdown as Record<string, unknown>) ?? {});
+  } catch {
+    breakdownRaw = {};
+  }
+
+  const companyRow = await queryOne<{ value: unknown }>(
+    'SELECT value FROM organization_settings WHERE tenant_id = $1 AND `key` = $2',
+    [DEFAULT_TENANT, 'company'],
+  );
+  let companyName = 'Automystics';
+  if (companyRow?.value) {
+    const v = typeof companyRow.value === 'string' ? JSON.parse(String(companyRow.value)) : companyRow.value;
+    companyName = String((v as { name?: string }).name || companyName);
+  }
+
+  // Prefer structured SalaryBreakdown when present; otherwise rebuild a minimal one
+  const hasStructured = Array.isArray(breakdownRaw.earnings);
+  const html = hasStructured
+    ? payslipHtml({
+        employeeName: String(slip.employee_name),
+        periodLabel: String(slip.period_label),
+        companyName,
+        breakdown: breakdownRaw as unknown as import('../lib/payroll-calc.js').SalaryBreakdown,
+      })
+    : payslipHtml({
+        employeeName: String(slip.employee_name),
+        periodLabel: String(slip.period_label),
+        companyName,
+        breakdown: {
+          basic: Number(breakdownRaw.basic ?? 0),
+          earnings: [
+            { code: 'basic', name: 'Basic', amount: Number(breakdownRaw.basic ?? 0) },
+            { code: 'hra', name: 'HRA', amount: Number(breakdownRaw.hra ?? 0) },
+          ],
+          deductions: [
+            { code: 'pf', name: 'PF', amount: Number(breakdownRaw.pf ?? 0) },
+            { code: 'esi', name: 'ESI', amount: Number(breakdownRaw.esi ?? 0) },
+            { code: 'pt', name: 'Professional Tax', amount: Number(breakdownRaw.pt ?? 0) },
+          ],
+          gross: Number(breakdownRaw.gross ?? slip.net_pay),
+          totalDeductions: Number(breakdownRaw.deductions ?? 0),
+          net: Number(slip.net_pay),
+          daysPayable: Number(breakdownRaw.presentDays ?? 0),
+          workingDays: Number(breakdownRaw.workingDays ?? 0),
+          unpaidLeaveDays: 0,
+        },
+      });
+  res.type('html').send(html);
 });
 
 export const recruitmentRouter = Router();

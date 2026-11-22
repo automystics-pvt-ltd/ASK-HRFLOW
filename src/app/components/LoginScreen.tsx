@@ -5,11 +5,12 @@ import { Label } from './ui/label';
 import { CompanyLogo } from './Brand';
 import { useAccess, roleLabels } from '../lib/access';
 import { useBranding } from '../lib/branding';
-import { Loader2, ShieldCheck, AlertCircle, Shield, Users, User } from 'lucide-react';
+import { Loader2, ShieldCheck, AlertCircle, Shield, Users, User, UserCog } from 'lucide-react';
 
 const demo = [
   { email: 'alvi@automystics.com', role: 'admin' as const, icon: Shield },
   { email: 'priya.nair@automystics.com', role: 'hr' as const, icon: Users },
+  { email: 'ananya.manager@automystics.com', role: 'manager' as const, icon: UserCog },
   { email: 'rahul.verma@automystics.com', role: 'employee' as const, icon: User },
 ];
 
