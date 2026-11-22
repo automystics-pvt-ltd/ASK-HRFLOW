@@ -196,15 +196,48 @@ export function AttendanceLeave() {
             <CardHeader><CardTitle>Leave Requests</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               {visibleRequests.map((request) => (
-                <div key={request.id} className="flex justify-between p-4 border rounded-lg">
-                  <div className="flex gap-3">
+                <div key={request.id} className="flex justify-between gap-3 p-4 border rounded-lg items-center">
+                  <div className="flex gap-3 min-w-0">
                     <Avatar><AvatarImage src={request.avatar} /><AvatarFallback>{request.employee.slice(0, 2)}</AvatarFallback></Avatar>
-                    <div>
-                      <p className="font-medium">{request.employee}</p>
-                      <p className="text-sm text-muted-foreground">{request.type} · {request.days} day(s)</p>
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{request.employee}</p>
+                      <p className="text-sm text-muted-foreground">{request.type} · {request.days} day(s) · {request.startDate} → {request.endDate}</p>
                     </div>
                   </div>
-                  <Badge>{request.status}</Badge>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge>{request.status}</Badge>
+                    {request.status === 'Pending' && can.canApproveLeave && request.userId !== me.id && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            void leaveApi
+                              .approve(request.id, false, 'Rejected')
+                              .then(() => leaveApi.list())
+                              .then(({ requests: rows }) => setRequests((rows ?? []) as LeaveReq[]))
+                              .then(() => toast.success('Leave rejected'))
+                              .catch((e) => toast.error(e instanceof Error ? e.message : 'Reject failed'))
+                          }
+                        >
+                          Reject
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() =>
+                            void leaveApi
+                              .approve(request.id, true)
+                              .then(() => leaveApi.list())
+                              .then(({ requests: rows }) => setRequests((rows ?? []) as LeaveReq[]))
+                              .then(() => toast.success('Leave approved'))
+                              .catch((e) => toast.error(e instanceof Error ? e.message : 'Approve failed'))
+                          }
+                        >
+                          Approve
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 </div>
               ))}
             </CardContent>

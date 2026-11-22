@@ -67,6 +67,25 @@ export function EmployeeManagement() {
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeRecord | null>(null);
   const [isAddEmployeeOpen, setIsAddEmployeeOpen] = useState(false);
+  const [addForm, setAddForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    department: 'Engineering',
+    position: '',
+    salary: '',
+    joinDate: new Date().toISOString().slice(0, 10),
+    location: '',
+    country: 'United States',
+  });
+  const [addBusy, setAddBusy] = useState(false);
+  const [listError, setListError] = useState('');
+
+  const reloadEmployees = () =>
+    employeesApi
+      .list()
+      .then(({ employees: rows }) => setEmployees((rows ?? []).map(mapRow)))
+      .catch((e) => setListError(e instanceof Error ? e.message : 'Failed to load employees'));
 
   useEffect(() => {
     const on = (ev: Event) => setSearchTerm((ev as CustomEvent<string>).detail);
@@ -75,10 +94,48 @@ export function EmployeeManagement() {
   }, []);
 
   useEffect(() => {
-    employeesApi.list().then(({ employees: rows }) => {
-      if (rows?.length) setEmployees(rows.map(mapRow));
-    }).catch(() => {});
+    void reloadEmployees();
   }, []);
+
+  const submitAddEmployee = async () => {
+    if (!addForm.name.trim() || !addForm.email.trim() || !addForm.position.trim()) {
+      toast.error('Name, email and position are required.');
+      return;
+    }
+    setAddBusy(true);
+    try {
+      await employeesApi.create({
+        name: addForm.name.trim(),
+        email: addForm.email.trim(),
+        phone: addForm.phone.trim() || null,
+        department: addForm.department,
+        position: addForm.position.trim(),
+        salary: Number(addForm.salary) || 0,
+        joinDate: addForm.joinDate,
+        location: addForm.location.trim() || null,
+        country: addForm.country,
+        status: 'Active',
+      });
+      toast.success('Employee created');
+      setIsAddEmployeeOpen(false);
+      setAddForm({
+        name: '',
+        email: '',
+        phone: '',
+        department: 'Engineering',
+        position: '',
+        salary: '',
+        joinDate: new Date().toISOString().slice(0, 10),
+        location: '',
+        country: 'United States',
+      });
+      await reloadEmployees();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not create employee');
+    } finally {
+      setAddBusy(false);
+    }
+  };
 
   const filteredEmployees = employees.filter((employee) => {
     const matchesSearch = employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -116,11 +173,35 @@ export function EmployeeManagement() {
           {can.canAddEmployee && (
             <Dialog open={isAddEmployeeOpen} onOpenChange={setIsAddEmployeeOpen}>
               <DialogTrigger asChild><Button className="gap-2"><Plus className="w-4 h-4" />Add Employee</Button></DialogTrigger>
-              <DialogContent><DialogHeader><DialogTitle>Add New Employee</DialogTitle></DialogHeader><div className="py-4 space-y-2"><Label>Name</Label><Input placeholder="Full name" /></div></DialogContent>
+              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader><DialogTitle>Add New Employee</DialogTitle></DialogHeader>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
+                  <div className="space-y-2 md:col-span-2"><Label>Full name</Label><Input value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} placeholder="Full name" /></div>
+                  <div className="space-y-2"><Label>Email</Label><Input type="email" value={addForm.email} onChange={(e) => setAddForm({ ...addForm, email: e.target.value })} placeholder="name@company.com" /></div>
+                  <div className="space-y-2"><Label>Phone</Label><Input value={addForm.phone} onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })} placeholder="+1 …" /></div>
+                  <div className="space-y-2">
+                    <Label>Department</Label>
+                    <Select value={addForm.department} onValueChange={(v) => setAddForm({ ...addForm, department: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{departments.slice(1).map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2"><Label>Position</Label><Input value={addForm.position} onChange={(e) => setAddForm({ ...addForm, position: e.target.value })} placeholder="Job title" /></div>
+                  <div className="space-y-2"><Label>Salary</Label><Input type="number" value={addForm.salary} onChange={(e) => setAddForm({ ...addForm, salary: e.target.value })} placeholder="0" /></div>
+                  <div className="space-y-2"><Label>Start date</Label><Input type="date" value={addForm.joinDate} onChange={(e) => setAddForm({ ...addForm, joinDate: e.target.value })} /></div>
+                  <div className="space-y-2"><Label>Location</Label><Input value={addForm.location} onChange={(e) => setAddForm({ ...addForm, location: e.target.value })} placeholder="City" /></div>
+                  <div className="space-y-2"><Label>Country</Label><Input value={addForm.country} onChange={(e) => setAddForm({ ...addForm, country: e.target.value })} /></div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setIsAddEmployeeOpen(false)}>Cancel</Button>
+                  <Button disabled={addBusy} onClick={() => void submitAddEmployee()}>{addBusy ? 'Saving…' : 'Add Employee'}</Button>
+                </div>
+              </DialogContent>
             </Dialog>
           )}
         </div>
       </div>
+      {listError && <p className="text-sm text-destructive">{listError}</p>}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {[
