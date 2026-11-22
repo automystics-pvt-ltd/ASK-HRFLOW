@@ -44,11 +44,20 @@ function parseJson<T>(val: unknown, fallback: T): T {
   if (val == null) return fallback;
   if (typeof val === 'object') return val as T;
   if (typeof val === 'string') {
-    try {
-      return JSON.parse(val) as T;
-    } catch {
-      return fallback;
+    const trimmed = val.trim();
+    // mysql2 may already decode JSON columns to a plain string (e.g. logo path)
+    if (
+      (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+      (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+      (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    ) {
+      try {
+        return JSON.parse(trimmed) as T;
+      } catch {
+        return fallback;
+      }
     }
+    return trimmed as T;
   }
   return fallback;
 }

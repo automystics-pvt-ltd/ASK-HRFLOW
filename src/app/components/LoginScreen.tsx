@@ -43,7 +43,7 @@ export function LoginScreen() {
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-background">
       <div className="hidden lg:flex flex-col justify-between p-12 bg-gradient-to-br from-[#061a52] via-[#0a2a7a] to-[#1d6bff] text-white">
-        <CompanyLogo onDark className="w-72" />
+        <CompanyLogo onDark className="w-72 max-h-28 object-contain" />
         <div className="space-y-4 max-w-md">
           <h1 className="text-4xl font-extrabold tracking-tight !text-white">ASK HRFlow</h1>
           <p className="text-[#c7d6ff] text-lg">One workspace for people operations: attendance, leave, payroll, hiring and performance, with access tailored to every role.</p>
@@ -58,7 +58,7 @@ export function LoginScreen() {
 
       <div className="flex items-center justify-center p-6 sm:p-12">
         <div className="w-full max-w-md space-y-8">
-          <div className="lg:hidden"><CompanyLogo className="w-56" /></div>
+          <div className="lg:hidden"><CompanyLogo className="w-56 max-h-20 object-contain" /></div>
           <div>
             <h2 className="text-2xl font-bold">Sign in</h2>
             <p className="text-muted-foreground">Access your ASK HRFlow workspace.</p>
