@@ -17,6 +17,9 @@ type Props = {
   disabled?: boolean;
   className?: string;
   id?: string;
+  /** Allow choosing a typed value that is not in options */
+  allowCustom?: boolean;
+  customLabel?: (query: string) => string;
 };
 
 export function SearchableSelect({
@@ -29,12 +32,32 @@ export function SearchableSelect({
   disabled,
   className,
   id,
+  allowCustom = false,
+  customLabel = (q) => `Use “${q}”`,
 }: Props) {
   const [open, setOpen] = useState(false);
-  const selected = useMemo(() => options.find((o) => o.value === value), [options, value]);
+  const [query, setQuery] = useState('');
+
+  const selected = useMemo(() => {
+    const fromOpts = options.find((o) => o.value === value);
+    if (fromOpts) return fromOpts;
+    if (value) return { value, label: value };
+    return undefined;
+  }, [options, value]);
+
+  const showCustom =
+    allowCustom &&
+    query.trim().length > 0 &&
+    !options.some((o) => o.label.toLowerCase() === query.trim().toLowerCase() || o.value.toLowerCase() === query.trim().toLowerCase());
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery('');
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           id={id}
@@ -50,11 +73,43 @@ export function SearchableSelect({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-        <Command>
-          <CommandInput placeholder={searchPlaceholder} />
+        <Command shouldFilter>
+          <CommandInput
+            placeholder={searchPlaceholder}
+            value={query}
+            onValueChange={setQuery}
+          />
           <CommandList>
-            <CommandEmpty>{emptyText}</CommandEmpty>
+            <CommandEmpty>
+              {allowCustom && query.trim() ? (
+                <button
+                  type="button"
+                  className="w-full px-2 py-3 text-sm text-left hover:bg-accent"
+                  onClick={() => {
+                    onChange(query.trim());
+                    setOpen(false);
+                    setQuery('');
+                  }}
+                >
+                  {customLabel(query.trim())}
+                </button>
+              ) : (
+                emptyText
+              )}
+            </CommandEmpty>
             <CommandGroup>
+              {showCustom && (
+                <CommandItem
+                  value={`__custom__${query.trim()}`}
+                  onSelect={() => {
+                    onChange(query.trim());
+                    setOpen(false);
+                    setQuery('');
+                  }}
+                >
+                  {customLabel(query.trim())}
+                </CommandItem>
+              )}
               {options.map((opt) => (
                 <CommandItem
                   key={opt.value}
@@ -62,6 +117,7 @@ export function SearchableSelect({
                   onSelect={() => {
                     onChange(opt.value);
                     setOpen(false);
+                    setQuery('');
                   }}
                 >
                   <Check className={cn('mr-2 h-4 w-4', value === opt.value ? 'opacity-100' : 'opacity-0')} />

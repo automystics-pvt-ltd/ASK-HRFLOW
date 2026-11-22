@@ -92,12 +92,12 @@ export function LocationFields({ value, onChange, disabled, fullWidth }: Props) 
           id="loc-city"
           value={value.city}
           options={cities}
-          disabled={disabled || !stateCode || cities.length === 0}
-          placeholder={
-            !stateCode ? 'Select state first' : cities.length ? 'Select city' : 'No cities listed'
-          }
+          disabled={disabled || !stateCode}
+          placeholder={!stateCode ? 'Select state first' : 'Search or select city'}
           searchPlaceholder="Search city…"
-          emptyText="No city found."
+          emptyText="No city found. Type a name to use a custom city."
+          allowCustom
+          customLabel={(q) => `Use city “${q}”`}
           onChange={(city) => onChange({ ...value, city })}
         />
       </div>
