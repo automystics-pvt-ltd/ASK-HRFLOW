@@ -34,9 +34,9 @@ const DEFAULT_COMPANY = {
 };
 
 const DEFAULT_THEME = {
-  primary: '#1e3a5f',
-  secondary: '#3b82f6',
-  accent: '#0ea5e9',
+  primary: '#0b57f0',
+  secondary: '#0a2a7a',
+  accent: '#1d6bff',
   mode: 'system' as 'system' | 'light' | 'dark',
 };
 
@@ -44,11 +44,20 @@ function parseJson<T>(val: unknown, fallback: T): T {
   if (val == null) return fallback;
   if (typeof val === 'object') return val as T;
   if (typeof val === 'string') {
-    try {
-      return JSON.parse(val) as T;
-    } catch {
-      return fallback;
+    const trimmed = val.trim();
+    // mysql2 may already decode JSON columns to a plain string (e.g. logo path)
+    if (
+      (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+      (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+      (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    ) {
+      try {
+        return JSON.parse(trimmed) as T;
+      } catch {
+        return fallback;
+      }
     }
+    return trimmed as T;
   }
   return fallback;
 }
@@ -69,11 +78,18 @@ async function setSetting(key: string, value: unknown) {
   );
 }
 
+function resolveLogoAbs(logoPath: string) {
+  return path.isAbsolute(logoPath)
+    ? logoPath
+    : path.join(__dirname, '..', '..', 'uploads', logoPath.replace(/^uploads[/\\]/, ''));
+}
+
 async function brandingPayload() {
   const company = { ...DEFAULT_COMPANY, ...parseJson(await getSetting('company'), {}) };
   const theme = { ...DEFAULT_THEME, ...parseJson(await getSetting('theme'), {}) };
   const logoPath = parseJson<string | null>(await getSetting('logoPath'), null);
-  const logoUrl = logoPath ? '/api/branding/logo-file' : null;
+  const logoUrl =
+    logoPath && fs.existsSync(resolveLogoAbs(logoPath)) ? '/api/branding/logo-file' : null;
   return { company, theme, logoUrl };
 }
 
@@ -161,10 +177,9 @@ router.delete('/logo', requireAuth, requirePermission('settings', 'update'), asy
 router.get('/logo-file', async (_req, res) => {
   const logoPath = parseJson<string | null>(await getSetting('logoPath'), null);
   if (!logoPath) return res.status(404).json({ error: 'No logo' });
-  const abs = path.isAbsolute(logoPath)
-    ? logoPath
-    : path.join(__dirname, '..', '..', 'uploads', logoPath.replace(/^uploads[/\\]/, ''));
+  const abs = resolveLogoAbs(logoPath);
   if (!fs.existsSync(abs)) return res.status(404).json({ error: 'Logo file missing' });
+  res.setHeader('Cache-Control', 'public, max-age=300');
   res.sendFile(abs);
 });
 

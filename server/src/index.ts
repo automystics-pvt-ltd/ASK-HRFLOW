@@ -19,6 +19,10 @@ import brandingRoutes from './routes/branding.js';
 import hrDocumentsRoutes from './routes/hr-documents.js';
 import holidaysRoutes from './routes/holidays.js';
 import approvalsRoutes from './routes/approvals.js';
+import claimsRoutes from './routes/claims.js';
+import activityRoutes from './routes/activity.js';
+import cardsRoutes from './routes/cards.js';
+import { runLeaveAutoApprove } from './lib/leave-auto-approve.js';
 import {
   payrollRouter,
   recruitmentRouter,
@@ -56,6 +60,9 @@ app.use('/api/branding', brandingRoutes);
 app.use('/api/hr-documents', hrDocumentsRoutes);
 app.use('/api/holidays', holidaysRoutes);
 app.use('/api/approvals', approvalsRoutes);
+app.use('/api/claims', claimsRoutes);
+app.use('/api/activity', activityRoutes);
+app.use('/api/cards', cardsRoutes);
 app.use('/api/payroll', payrollRouter);
 app.use('/api/recruitment', recruitmentRouter);
 app.use('/api/performance', performanceRouter);
@@ -91,4 +98,14 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 app.listen(PORT, () => {
   console.log(`ASK HRFlow API (MySQL) on http://localhost:${PORT}`);
   console.log(`Swagger: http://localhost:${PORT}/api/docs`);
+  // Scheduled leave auto-approval (never auto-approves expense claims)
+  const runJob = () => {
+    void runLeaveAutoApprove()
+      .then((r) => {
+        if (r.approved > 0) console.log(`[leave-auto-approve] approved=${r.approved} skipped=${r.skipped}`);
+      })
+      .catch((e) => console.error('[leave-auto-approve]', e));
+  };
+  setTimeout(runJob, 10_000);
+  setInterval(runJob, 60 * 60 * 1000);
 });

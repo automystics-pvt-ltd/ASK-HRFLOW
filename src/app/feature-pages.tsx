@@ -13,9 +13,11 @@ import {
   hrDocumentsApi,
   holidaysApi,
   leaveTypesApi,
+  claimsApi,
   type BrandingCompany,
   type BrandingTheme,
 } from './lib/api';
+import { LeavePolicyPanel, CardsPanel } from './components/AdvancedHRPanels';
 import { useBranding } from './lib/branding';
 import { toast } from 'sonner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
@@ -877,12 +879,15 @@ export function SettingsPage() {
                     <Label className="capitalize">{key}</Label>
                     <Input
                       type="color"
-                      value={String(theme[key] ?? '#1e3a5f')}
+                      value={String(theme[key] ?? (key === 'primary' ? '#0b57f0' : key === 'secondary' ? '#0a2a7a' : '#1d6bff'))}
                       onChange={(e) => setTheme({ ...theme, [key]: e.target.value })}
                     />
                   </div>
                 ))}
               </div>
+              <p className="text-xs text-muted-foreground">
+                Primary sets every action button and CTA. Secondary and accent color the side navigation gradient and active menu highlight.
+              </p>
               <div className="space-y-1.5">
                 <Label>Mode</Label>
                 <Select
@@ -903,6 +908,13 @@ export function SettingsPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {(acc.role === 'admin' || acc.role === 'hr') && (
+        <>
+          <LeavePolicyPanel />
+          <CardsPanel />
+        </>
       )}
 
       {(can.canManageCompany || acc.can('attendance', 'update')) && (
@@ -1287,6 +1299,78 @@ export function SettingsPage() {
           </CardContent>
         </Card>
       )}
+
+      {(role === 'admin' || role === 'hr') && (
+        <Card className="border border-border rounded-xl">
+          <CardHeader>
+            <CardTitle>Expense categories</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <ExpenseCategoriesAdmin />
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function ExpenseCategoriesAdmin() {
+  const [categories, setCategories] = useState<Record<string, unknown>[]>([]);
+  const [form, setForm] = useState({ code: '', name: '', maxAmount: '' });
+
+  const load = () => {
+    void claimsApi.categories().then(({ categories: c }) => setCategories(c ?? [])).catch(() => {});
+  };
+  useEffect(load, []);
+
+  return (
+    <div className="space-y-3">
+      <div className="grid sm:grid-cols-4 gap-2 items-end">
+        <div className="space-y-1">
+          <Label>Code</Label>
+          <Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label>Name</Label>
+          <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label>Max amount</Label>
+          <Input
+            type="number"
+            value={form.maxAmount}
+            onChange={(e) => setForm({ ...form, maxAmount: e.target.value })}
+          />
+        </div>
+        <Button
+          onClick={() => {
+            void claimsApi
+              .createCategory({
+                code: form.code,
+                name: form.name,
+                maxAmount: form.maxAmount ? Number(form.maxAmount) : null,
+              })
+              .then(() => {
+                toast.success('Category added');
+                setForm({ code: '', name: '', maxAmount: '' });
+                load();
+              })
+              .catch((e) => toast.error(e instanceof Error ? e.message : 'Failed'));
+          }}
+        >
+          Add
+        </Button>
+      </div>
+      {categories.map((c) => (
+        <div key={String(c.id)} className="flex justify-between items-center border rounded-lg p-3 text-sm">
+          <span>
+            {String(c.name)} <span className="text-muted-foreground">({String(c.code)})</span>
+          </span>
+          <span className="text-muted-foreground">
+            {c.maxAmount != null ? `Max ${c.maxAmount}` : 'No max'}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }

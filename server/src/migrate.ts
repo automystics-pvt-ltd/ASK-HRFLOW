@@ -40,14 +40,12 @@ async function columnExists(table: string, column: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-/** Add a column only when missing — safe on MySQL 8 / MariaDB. */
 async function ensureColumn(table: string, column: string, definition: string) {
   if (await columnExists(table, column)) return;
   await pool.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${definition}`);
   console.log(`  + ${table}.${column}`);
 }
 
-/** Columns introduced by 002 that cannot use ADD COLUMN IF NOT EXISTS on MySQL 8. */
 async function ensureBrandingDocsColumns() {
   await ensureColumn('leave_types', 'carry_forward', 'TINYINT(1) NOT NULL DEFAULT 0');
   await ensureColumn('leave_types', 'allow_half_day', 'TINYINT(1) NOT NULL DEFAULT 1');
@@ -55,6 +53,29 @@ async function ensureBrandingDocsColumns() {
   await ensureColumn('leave_types', 'policy_json', 'JSON NULL');
   await ensureColumn('attendance_events', 'location_address', 'VARCHAR(512) NULL');
   await ensureColumn('attendance_days', 'location_address', 'VARCHAR(512) NULL');
+}
+
+async function ensureAdvancedColumns() {
+  await ensureColumn('employees', 'manager_user_id', 'VARCHAR(32) NULL');
+  await ensureColumn('employees', 'employment_type', "VARCHAR(64) NULL DEFAULT 'full_time'");
+  await ensureColumn('employees', 'designation', 'VARCHAR(120) NULL');
+  await ensureColumn('leave_requests', 'half_day', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await ensureColumn('leave_requests', 'auto_approved', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await ensureColumn('approval_actions', 'comment', 'TEXT NULL');
+}
+
+async function ensureManagerRoleEnums() {
+  // Expand role ENUMs to include manager (idempotent via MODIFY)
+  await pool.query(
+    `ALTER TABLE users MODIFY COLUMN role ENUM('admin','hr','employee','manager') NOT NULL DEFAULT 'employee'`,
+  );
+  await pool.query(
+    `ALTER TABLE role_permissions MODIFY COLUMN role ENUM('admin','hr','employee','manager') NOT NULL`,
+  );
+  await pool.query(
+    `ALTER TABLE approval_steps MODIFY COLUMN approver_role ENUM('admin','hr','employee','manager') NOT NULL DEFAULT 'hr'`,
+  );
+  console.log('  ~ role ENUMs include manager');
 }
 
 async function main() {
@@ -65,7 +86,6 @@ async function main() {
   } else {
     console.log('001_init already applied');
   }
-  // Future numbered .sql files under server/migrations (excluding 001 placeholder)
   const migDir = path.join(__dirname, '..', 'migrations');
   if (fs.existsSync(migDir)) {
     const files = fs
@@ -75,23 +95,31 @@ async function main() {
     for (const file of files) {
       const id = file.replace(/\.sql$/i, '');
       if (done.has(id)) {
-        // Still ensure columns if 002 was applied before column helper existed
-        if (id === '002_branding_docs_holidays_approvals') {
-          await ensureBrandingDocsColumns();
+        if (id === '002_branding_docs_holidays_approvals') await ensureBrandingDocsColumns();
+        if (id === '003_advanced_leave_payroll_claims') {
+          await ensureAdvancedColumns();
+          await ensureManagerRoleEnums();
         }
         continue;
       }
       const sql = fs.readFileSync(path.join(migDir, file), 'utf8');
       await pool.query(sql);
-      if (id === '002_branding_docs_holidays_approvals') {
-        await ensureBrandingDocsColumns();
+      if (id === '002_branding_docs_holidays_approvals') await ensureBrandingDocsColumns();
+      if (id === '003_advanced_leave_payroll_claims') {
+        await ensureAdvancedColumns();
+        await ensureManagerRoleEnums();
       }
       await pool.query('INSERT INTO schema_migrations (id) VALUES (?)', [id]);
       console.log(`Applied migration ${id}`);
     }
   }
-  // Idempotent column ensure even when 002 already recorded
   await ensureBrandingDocsColumns();
+  await ensureAdvancedColumns();
+  try {
+    await ensureManagerRoleEnums();
+  } catch (e) {
+    console.warn('Manager ENUM ensure skipped:', e instanceof Error ? e.message : e);
+  }
   await pool.end();
 }
 

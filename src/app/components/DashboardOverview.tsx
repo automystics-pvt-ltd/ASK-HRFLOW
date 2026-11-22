@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Button } from './ui/button';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { approvalsApi, auditApi, dashboardApi, performanceApi } from '../lib/api';
+import { ApprovalReasonDialog } from './ApprovalReasonDialog';
 import { toast } from 'sonner';
 import {
   Users, Clock, DollarSign, TrendingUp, UserCheck, CalendarDays, Award, AlertCircle,
@@ -128,10 +129,18 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
     }
   }, [can, loadInbox]);
 
-  const decide = async (id: number, action: 'approve' | 'reject') => {
+  const [reasonTarget, setReasonTarget] = useState<{ id: number; action: 'approve' | 'reject' } | null>(null);
+
+  const decide = (id: number, action: 'approve' | 'reject') => {
+    setReasonTarget({ id, action });
+  };
+
+  const confirmDecide = async (comment: string) => {
+    if (!reasonTarget) return;
+    const { id, action } = reasonTarget;
     setActingId(id);
     try {
-      await approvalsApi.action(id, action);
+      await approvalsApi.action(id, action, comment);
       toast.success(action === 'approve' ? 'Approved' : 'Rejected');
       loadInbox();
       dashboardApi
@@ -147,6 +156,7 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
       toast.error(e instanceof Error ? e.message : 'Action failed');
     } finally {
       setActingId(null);
+      setReasonTarget(null);
     }
   };
 
@@ -157,7 +167,13 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
 
   return (
     <div className="space-y-6">
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#061a52] via-[#0a3a9e] to-[#1d6bff] p-4 sm:p-6 text-primary-foreground">
+      <div
+        className="relative overflow-hidden rounded-2xl p-4 sm:p-6 text-primary-foreground"
+        style={{
+          backgroundImage:
+            'linear-gradient(90deg, var(--sidebar-from, var(--primary)) 0%, var(--brand-secondary, var(--primary)) 55%, var(--sidebar-accent, var(--primary)) 100%)',
+        }}
+      >
         <div className="relative z-10 max-w-2xl">
           <h1 className="text-xl sm:text-2xl mb-2 !text-white">
             {greeting()}, {user?.name.split(' ')[0]}
@@ -425,6 +441,15 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
           </Button>
         </CardContent>
       </Card>
+      <ApprovalReasonDialog
+        open={Boolean(reasonTarget)}
+        title={reasonTarget?.action === 'approve' ? 'Approval reason' : 'Rejection reason'}
+        actionLabel={reasonTarget?.action === 'approve' ? 'Approve' : 'Reject'}
+        onOpenChange={(open) => {
+          if (!open) setReasonTarget(null);
+        }}
+        onConfirm={confirmDecide}
+      />
     </div>
   );
 }

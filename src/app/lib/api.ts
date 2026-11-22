@@ -74,14 +74,119 @@ export const employeesApi = {
 export const leaveApi = {
   types: () => api<{ types: Record<string, unknown>[] }>('/api/leave/types'),
   balances: (userId?: string) =>
-    api<{ balances: Record<string, { used: number; total: number }>; year: number }>(
+    api<{ balances: Record<string, { used: number; total: number; remaining?: number }>; year: number }>(
       userId ? `/api/leave/balances?userId=${encodeURIComponent(userId)}` : '/api/leave/balances',
     ),
   list: () => api<{ requests: Record<string, unknown>[] }>('/api/leave'),
   create: (payload: Record<string, unknown>) =>
-    api<{ id: number }>('/api/leave', { method: 'POST', body: JSON.stringify(payload) }),
+    api<{ id: number; days?: number }>('/api/leave', { method: 'POST', body: JSON.stringify(payload) }),
   approve: (id: number, approve: boolean, comment?: string) =>
     api<{ ok: boolean }>(`/api/leave/${id}/approve`, { method: 'POST', body: JSON.stringify({ approve, comment }) }),
+  policySettings: () =>
+    api<{
+      settings: {
+        autoApproveEnabled: boolean;
+        autoApproveDays: number;
+        countWeekends: boolean;
+        countHolidays: boolean;
+        requireApprovalComment: boolean;
+      };
+    }>('/api/leave/policy-settings'),
+  updatePolicySettings: (payload: Record<string, unknown>) =>
+    api<{ settings: Record<string, unknown> }>('/api/leave/policy-settings', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  calculateDays: (startDate: string, endDate: string, halfDay?: boolean) =>
+    api<{ days: number }>('/api/leave/calculate-days', {
+      method: 'POST',
+      body: JSON.stringify({ startDate, endDate, halfDay }),
+    }),
+  previewDays: (start: string, end: string, halfDay?: boolean) =>
+    api<{ days: number }>('/api/leave/calculate-days', {
+      method: 'POST',
+      body: JSON.stringify({ startDate: start, endDate: end, halfDay }),
+    }),
+  summary: (userId?: string, year?: number) => {
+    const qs = new URLSearchParams();
+    if (userId) qs.set('userId', userId);
+    if (year) qs.set('year', String(year));
+    const suffix = qs.toString() ? `?${qs}` : '';
+    return api<{ byType: Record<string, unknown>[]; rollups: Record<string, unknown> }>(`/api/leave/summary${suffix}`);
+  },
+  runAutoApprove: () =>
+    api<{ processed: number; approved: number; skipped: number }>('/api/leave/run-auto-approve', {
+      method: 'POST',
+      body: '{}',
+    }),
+};
+
+export const claimsApi = {
+  categories: () => api<{ categories: Record<string, unknown>[] }>('/api/claims/categories'),
+  createCategory: (payload: Record<string, unknown>) =>
+    api<{ id: number }>('/api/claims/categories', { method: 'POST', body: JSON.stringify(payload) }),
+  updateCategory: (id: number, payload: Record<string, unknown>) =>
+    api<{ ok: boolean }>(`/api/claims/categories/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  list: () => api<{ claims: Record<string, unknown>[] }>('/api/claims'),
+  create: async (payload: {
+    categoryId: number | string;
+    amount: number;
+    expenseDate: string;
+    description: string;
+    receipt?: File | null;
+  }) => {
+    const fd = new FormData();
+    fd.append('categoryId', String(payload.categoryId));
+    fd.append('amount', String(payload.amount));
+    fd.append('expenseDate', payload.expenseDate);
+    fd.append('description', payload.description);
+    if (payload.receipt) fd.append('receipt', payload.receipt);
+    const res = await fetch('/api/claims', { method: 'POST', credentials: 'include', body: fd });
+    const body = await parseJson(res);
+    if (!res.ok) throw new ApiError(String((body as { error?: string })?.error ?? 'Claim failed'), res.status, body);
+    return body as { id: number };
+  },
+  action: (id: number, action: 'approve' | 'reject' | 'clarification' | 'pay', comment: string, approvedAmount?: number) =>
+    api<{ ok: boolean; status?: string }>(`/api/claims/${id}/action`, {
+      method: 'POST',
+      body: JSON.stringify({ action, comment, approvedAmount }),
+    }),
+};
+
+export const activityApi = {
+  employee: (userId: string, year?: number) =>
+    api<Record<string, unknown>>(
+      `/api/activity/employee/${encodeURIComponent(userId)}${year ? `?year=${year}` : ''}`,
+    ),
+  report: (params?: { department?: string; manager?: string; managerId?: string; dateFrom?: string; dateTo?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.department) q.set('department', params.department);
+    if (params?.manager) q.set('manager', params.manager);
+    if (params?.managerId) q.set('manager', params.managerId);
+    if (params?.dateFrom) q.set('dateFrom', params.dateFrom);
+    if (params?.dateTo) q.set('dateTo', params.dateTo);
+    const qs = q.toString();
+    return api<{ report: Record<string, unknown>[]; employees?: Record<string, unknown>[] }>(
+      `/api/activity/report${qs ? `?${qs}` : ''}`,
+    );
+  },
+};
+
+export const cardsApi = {
+  templates: () => api<{ templates: Record<string, unknown>[] }>('/api/cards/templates'),
+  generate: (employeeIdOrPayload: number | { employeeId: number; cardKind: 'id_card' | 'business_card'; templateId?: string }, cardKind?: 'id_card' | 'business_card') => {
+    const payload =
+      typeof employeeIdOrPayload === 'object'
+        ? employeeIdOrPayload
+        : { employeeId: employeeIdOrPayload, cardKind: cardKind || 'id_card' };
+    return api<{ id: string; title: string; html?: string }>('/api/cards/generate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  generated: () => api<{ cards: Record<string, unknown>[] }>('/api/cards/generated'),
+  get: (id: string) => api<{ card: Record<string, unknown> }>(`/api/cards/generated/${id}`),
+  viewUrl: (id: string) => `/api/cards/generated/${id}?format=html`,
 };
 
 export const attendanceApi = {
@@ -140,8 +245,9 @@ export const dashboardApi = {
 
 export const accessApi = {
   users: () => api<{ users: AppUser[] }>('/api/access/users'),
-  permissions: () => api<{ roleTemplates: Record<'admin' | 'hr' | 'employee', PermissionSet> }>('/api/access/permissions'),
-  updateRoleTemplate: (role: 'admin' | 'hr' | 'employee', permissions: PermissionSet) =>
+  permissions: () =>
+    api<{ roleTemplates: Record<'admin' | 'hr' | 'employee' | 'manager', PermissionSet> }>('/api/access/permissions'),
+  updateRoleTemplate: (role: 'admin' | 'hr' | 'employee' | 'manager', permissions: PermissionSet) =>
     api<{ ok: boolean }>(`/api/access/permissions/${role}`, {
       method: 'PUT',
       body: JSON.stringify({ permissions }),
@@ -166,11 +272,29 @@ export const auditApi = {
 export const payrollApi = {
   runs: () => api<{ runs: Record<string, unknown>[] }>('/api/payroll/runs'),
   payslips: () => api<{ payslips: Record<string, unknown>[] }>('/api/payroll/payslips'),
-  process: (payload: { periodLabel: string; periodStart: string; periodEnd: string }) =>
-    api<{ id: number; total: number; employeesProcessed: number }>('/api/payroll/runs', {
-      method: 'POST',
+  process: (payload: {
+    periodLabel: string;
+    periodStart: string;
+    periodEnd: string;
+    previewOnly?: boolean;
+    lock?: boolean;
+  }) =>
+    api<{ id?: number; total: number; employeesProcessed?: number; preview?: boolean; employees?: unknown[] }>(
+      '/api/payroll/runs',
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
+  components: () => api<{ components: Record<string, unknown>[] }>('/api/payroll/components'),
+  salaryStructure: (employeeId: number) =>
+    api<{ structures: Record<string, unknown>[] }>(`/api/payroll/salary-structure/${employeeId}`),
+  saveSalaryStructure: (
+    employeeId: number,
+    payload: { effectiveFrom: string; basic: number; components?: unknown; notes?: string },
+  ) =>
+    api<{ id: number }>(`/api/payroll/salary-structure/${employeeId}`, {
+      method: 'PUT',
       body: JSON.stringify(payload),
     }),
+  payslipHtmlUrl: (id: number | string) => `/api/payroll/payslips/${id}/html`,
 };
 
 export const recruitmentApi = {
@@ -320,4 +444,6 @@ export const approvalsApi = {
       method: 'POST',
       body: JSON.stringify({ action, comment }),
     }),
+  runAutoApprove: () =>
+    api<{ processed: number; approved: number; skipped: number }>('/api/approvals/run-auto-approve'),
 };

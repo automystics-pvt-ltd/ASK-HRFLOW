@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'hr' | 'employee';
+export type Role = 'admin' | 'hr' | 'employee' | 'manager';
 export type Action = 'create' | 'read' | 'update' | 'delete' | 'approve' | 'export';
 
 export const ALL_ACTIONS: Action[] = ['create', 'read', 'update', 'delete', 'approve', 'export'];
@@ -32,11 +32,26 @@ export const defaultRolePermissions: Record<Role, PermissionSet> = {
     dashboard: ['read'],
     employees: ['create', 'read', 'update', 'export'],
     attendance: ['create', 'read', 'update', 'approve', 'export'],
+    payroll: ['read'],
     recruitment: ['create', 'read', 'update'],
     performance: ['read'],
     engagement: ['create', 'read'],
     'ai-assistant': ['read'],
     notifications: ['read'],
+    reports: ['read', 'export'],
+    settings: ['read'],
+  },
+  manager: {
+    ...empty(),
+    dashboard: ['read'],
+    employees: ['read'],
+    attendance: ['create', 'read', 'approve'],
+    payroll: ['read'],
+    notifications: ['read'],
+    performance: ['read'],
+    engagement: ['read'],
+    'ai-assistant': ['read'],
+    reports: ['read', 'export'],
     settings: ['read'],
   },
   employee: {

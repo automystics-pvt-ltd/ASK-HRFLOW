@@ -28,12 +28,23 @@
 - [x] Approval workflows + inbox (`/api/approvals`); leave create spawns request when workflow active
 - [x] Attendance reverse geocoding (Nominatim) → `location_address` (never invents place names)
 - [x] Migration `002` with MySQL 8–safe column ensures via `information_schema` in `migrate.ts`
+- [x] Migration `003` advanced leave / payroll / claims / cards + manager role ENUM
+- [x] Leave policy settings + `calculateLeaveDays` (weekends/holidays); leave summary API
+- [x] Leave create validates overlap, balance, advance notice, max consecutive; server-side day calc
+- [x] Manager role + `manager_user_id` team routing; leave/claim approvals prefer manager then HR
+- [x] Leave auto-approve job (`runLeaveAutoApprove`) hourly + boot; claims never auto-approved
+- [x] Expense claims CRUD + receipt upload + mandatory comment on decide
+- [x] Employee activity report + ID/business card generation
+- [x] Payroll salary structures + statutory rates + payslip HTML
+- [x] Manager dashboard; Claims/Activity tabs; Settings leave policy / categories / cards
+- [x] Mandatory approval reason Dialog on dashboard, notifications, leave approve
 
 ## Verified locally
 
 - `npm run db:seed` / `db:migrate` → MySQL
 - `/api/health` → `{ ok: true, db: "mysql" }`
 - Admin login + dashboard/employees; employee `403` on `/api/employees`
+- Manager demo `ananya.manager@automystics.com` / `demo123`
 - `npm run test:unit` · `npm run test:api` · `npm run build`
 
 ## Remaining / follow-up
@@ -49,6 +60,8 @@
 - [ ] Load/stress suite
 - [ ] Shift edit/deactivate UI (create + list only today)
 - [ ] Multi-level approval escalation timer job (schema + steps exist; scheduled escalate pending)
+- [ ] Claims payment ledger / finance export beyond status `paid`
+- [ ] Richer leave type policy editor UI (JSON fields exist on PUT)
 - [x] HR document generate + employee-scoped view of own generated docs
 - [x] Employee/HR dashboards wired to holidays, leave balances, notices, stats (no static mock KPIs)
 - [x] Attendance UI never fabricates location labels when GPS/address missing

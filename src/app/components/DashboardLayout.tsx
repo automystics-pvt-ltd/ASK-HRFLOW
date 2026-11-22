@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { useAccess, roleLabels } from '../lib/access';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { BrandLockup } from './Brand';
+import { useBranding } from '../lib/branding';
 import alviProfile from '../../assets/alvi-profile.jpg';
 import {
   Home,
@@ -56,11 +57,13 @@ function NavList({
   activeTab,
   onSelect,
   onDark,
+  accent,
 }: {
   items: typeof menuItems;
   activeTab: string;
   onSelect: (id: string) => void;
   onDark?: boolean;
+  accent?: string;
 }) {
   return (
     <nav className="flex flex-col gap-1">
@@ -72,18 +75,27 @@ function NavList({
             key={item.id}
             type="button"
             onClick={() => onSelect(item.id)}
+            style={
+              onDark && isActive
+                ? { borderLeftColor: accent || 'var(--sidebar-accent, #3cd0f5)' }
+                : undefined
+            }
             className={[
               'w-full flex items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors',
               onDark
                 ? isActive
-                  ? 'bg-primary text-white border-l-2 border-[#3cd0f5]'
+                  ? 'bg-white/15 text-white border-l-2 font-medium'
                   : 'text-white/80 hover:bg-white/10 hover:text-white'
                 : isActive
                   ? 'bg-accent text-foreground font-medium'
                   : 'text-muted-foreground hover:bg-accent hover:text-foreground',
             ].join(' ')}
           >
-            <Icon className={`w-5 h-5 shrink-0 ${onDark ? (isActive ? 'text-white' : 'text-[#7fb2ff]') : isActive ? 'text-primary' : ''}`} />
+            <Icon
+              className={`w-5 h-5 shrink-0 ${
+                onDark ? (isActive ? 'text-white' : 'text-white/70') : isActive ? 'text-primary' : ''
+              }`}
+            />
             <span className="truncate">{item.label}</span>
           </button>
         );
@@ -92,15 +104,42 @@ function NavList({
   );
 }
 
+function SidebarCopyright({ onDark = false }: { onDark?: boolean }) {
+  const { company } = useBranding();
+  const legal =
+    company.legalName ||
+    company.name ||
+    'Automystics Technologies Pvt Ltd';
+  return (
+    <div
+      className={`px-4 py-3 border-t text-[10px] leading-snug ${
+        onDark ? 'border-white/10 text-white/55' : 'border-border text-muted-foreground'
+      }`}
+    >
+      <p>Copyright © All rights reserved</p>
+      <p className="mt-0.5 truncate" title={legal}>
+        @{legal.replace(/^@/, '')}
+      </p>
+    </div>
+  );
+}
+
 export function DashboardLayout({ activeTab, setActiveTab, isDarkMode, toggleDarkMode, children }: DashboardLayoutProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { user, role, can, unread, logout } = useAccess();
+  const { theme } = useBranding();
   const [query, setQuery] = useState('');
   const visibleItems = menuItems.filter((m) => can(m.id, 'read'));
   const bottomItems = visibleItems
     .filter((m) => ['dashboard', 'employees', 'attendance', 'payroll', 'ai-assistant', 'performance', 'settings'].includes(m.id))
     .slice(0, 5);
   const pageTitle = menuItems.find((m) => m.id === activeTab)?.label ?? 'Dashboard';
+  const sidebarFrom = theme.primary || 'var(--sidebar-from, #061a52)';
+  const sidebarTo = theme.secondary || 'var(--sidebar-to, #0a2a7a)';
+  const sidebarAccent = theme.accent || 'var(--sidebar-accent, #3cd0f5)';
+  const sidebarPanelStyle: React.CSSProperties = {
+    backgroundImage: `linear-gradient(180deg, ${sidebarFrom} 0%, ${sidebarTo} 100%)`,
+  };
 
   const go = (id: string) => {
     setActiveTab(id);
@@ -109,17 +148,25 @@ export function DashboardLayout({ activeTab, setActiveTab, isDarkMode, toggleDar
 
   return (
     <div className="min-h-svh w-full flex bg-gradient-to-br from-background via-background to-secondary/10">
-      {/* Desktop / tablet sidebar — occupies flow width so content never sits underneath */}
+      {/* Desktop / tablet sidebar — theme-driven colors from Admin branding */}
       <aside
-        className="hidden md:flex w-64 lg:w-72 shrink-0 flex-col sticky top-0 h-svh overflow-y-auto border-r border-sidebar-border bg-gradient-to-b from-[#061a52] to-[#0a2a7a] text-white z-30"
+        className="hidden md:flex w-64 lg:w-72 shrink-0 flex-col sticky top-0 h-svh border-r border-white/10 text-white z-30"
+        style={sidebarPanelStyle}
         aria-label="Primary"
       >
         <div className="p-5 lg:p-6 border-b border-white/10 shrink-0">
           <BrandLockup onDark />
         </div>
-        <div className="p-3 lg:p-4 flex-1">
-          <NavList items={visibleItems} activeTab={activeTab} onSelect={go} onDark />
+        <div className="p-3 lg:p-4 flex-1 overflow-y-auto min-h-0">
+          <NavList
+            items={visibleItems}
+            activeTab={activeTab}
+            onSelect={go}
+            onDark
+            accent={sidebarAccent}
+          />
         </div>
+        <SidebarCopyright onDark />
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0 min-h-svh">
@@ -131,14 +178,21 @@ export function DashboardLayout({ activeTab, setActiveTab, isDarkMode, toggleDar
                   <Menu className="w-5 h-5" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[min(18rem,85vw)] p-0">
+              <SheetContent side="left" className="w-[min(18rem,85vw)] p-0 border-0 text-white flex flex-col" style={sidebarPanelStyle}>
                 <SheetTitle className="sr-only">Navigation menu</SheetTitle>
-                <div className="p-5 border-b border-border">
-                  <BrandLockup />
+                <div className="p-5 border-b border-white/10 shrink-0">
+                  <BrandLockup onDark />
                 </div>
-                <div className="p-3 overflow-y-auto max-h-[calc(100svh-5rem)]">
-                  <NavList items={visibleItems} activeTab={activeTab} onSelect={go} />
+                <div className="p-3 overflow-y-auto flex-1 min-h-0">
+                  <NavList
+                    items={visibleItems}
+                    activeTab={activeTab}
+                    onSelect={go}
+                    onDark
+                    accent={sidebarAccent}
+                  />
                 </div>
+                <SidebarCopyright onDark />
               </SheetContent>
             </Sheet>
 

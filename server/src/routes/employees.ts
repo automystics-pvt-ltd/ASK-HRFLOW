@@ -22,6 +22,8 @@ function mapEmployee(row: Record<string, unknown>, hideSalary: boolean) {
     phone: row.phone,
     department: row.department,
     position: row.position,
+    designation: row.designation ?? row.position,
+    employmentType: row.employment_type ?? 'full_time',
     status: row.status,
     joinDate: join,
     join_date: join,
@@ -29,6 +31,7 @@ function mapEmployee(row: Record<string, unknown>, hideSalary: boolean) {
     country: row.country,
     avatar: row.avatar,
     manager: row.manager,
+    managerUserId: row.manager_user_id ?? null,
     skills: parsed,
   };
   if (hideSalary) return { ...base, salary: null };
@@ -47,8 +50,13 @@ router.get('/', requireAuth, attachUser, requirePermission('employees', 'read'),
   const filters: string[] = ['tenant_id = $1'];
   const params: unknown[] = [DEFAULT_TENANT];
   let idx = 2;
+  // Managers only see their direct reports
+  if (req.user!.role === 'manager') {
+    filters.push(`manager_user_id = $${idx++}`);
+    params.push(req.user!.sub);
+  }
   if (q) {
-    filters.push(`(name ILIKE $${idx} OR email ILIKE $${idx} OR department ILIKE $${idx})`);
+    filters.push(`(name LIKE $${idx} OR email LIKE $${idx} OR department LIKE $${idx})`);
     params.push(`%${q}%`);
     idx++;
   }
@@ -97,8 +105,8 @@ router.post('/', requireAuth, attachUser, requirePermission('employees', 'create
   if (dup) return res.status(409).json({ error: 'Employee with this email already exists' });
 
   const id = await insert(
-    `INSERT INTO employees (tenant_id, user_id, name, email, phone, department, position, status, join_date, salary, location, country, avatar, manager, skills)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+    `INSERT INTO employees (tenant_id, user_id, name, email, phone, department, position, status, join_date, salary, location, country, avatar, manager, skills, manager_user_id, designation, employment_type)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
     [
       DEFAULT_TENANT,
       e.userId ?? null,
@@ -115,6 +123,9 @@ router.post('/', requireAuth, attachUser, requirePermission('employees', 'create
       e.avatar ?? null,
       e.manager ?? null,
       JSON.stringify(e.skills ?? []),
+      e.managerUserId ?? e.manager_user_id ?? null,
+      e.designation ?? e.position ?? null,
+      e.employmentType ?? e.employment_type ?? 'full_time',
     ],
   );
   const u = await ensureAppUser(req);
@@ -132,10 +143,34 @@ router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'upda
   ]);
   if (dup) return res.status(409).json({ error: 'Employee with this email already exists' });
 
+  const managerProvided = e.managerUserId !== undefined || e.manager_user_id !== undefined;
+  const managerUserId = managerProvided ? (e.managerUserId ?? e.manager_user_id ?? null) : null;
+  const managerName = e.manager !== undefined ? e.manager : null;
+
   await query(
-    `UPDATE employees SET name=$1, email=$2, phone=$3, department=$4, position=$5, status=$6, salary=$7, location=$8, country=$9, manager=$10
-     WHERE id=$11 AND tenant_id=$12`,
-    [e.name, email, e.phone, e.department, e.position, e.status, e.salary, e.location, e.country, e.manager, req.params.id, DEFAULT_TENANT],
+    `UPDATE employees SET name=$1, email=$2, phone=$3, department=$4, position=$5, status=$6, salary=$7, location=$8, country=$9,
+       manager=CASE WHEN $16 = 1 THEN $10 ELSE manager END,
+       manager_user_id=CASE WHEN $16 = 1 THEN $11 ELSE manager_user_id END,
+       designation=COALESCE($12, designation), employment_type=COALESCE($13, employment_type)
+     WHERE id=$14 AND tenant_id=$15`,
+    [
+      e.name,
+      email,
+      e.phone,
+      e.department,
+      e.position,
+      e.status,
+      e.salary,
+      e.location,
+      e.country,
+      managerName,
+      managerUserId,
+      e.designation ?? null,
+      e.employmentType ?? e.employment_type ?? null,
+      req.params.id,
+      DEFAULT_TENANT,
+      managerProvided ? 1 : 0,
+    ],
   );
   res.json({ ok: true });
 });

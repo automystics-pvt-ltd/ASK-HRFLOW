@@ -19,9 +19,9 @@ const defaults: BrandingState = {
     website: '',
   },
   theme: {
-    primary: '#1e3a5f',
-    secondary: '#3b82f6',
-    accent: '#0ea5e9',
+    primary: '#0b57f0',
+    secondary: '#0a2a7a',
+    accent: '#1d6bff',
     mode: 'system',
   },
   logoUrl: null,
@@ -31,15 +31,42 @@ const defaults: BrandingState = {
 
 const BrandingContext = createContext<BrandingState>(defaults);
 
+/** Blend a hex color toward white (0 = original, 1 = white). */
+function mixWithWhite(hex: string, amount: number): string {
+  const raw = hex.replace('#', '').trim();
+  if (!/^[0-9a-fA-F]{6}$/.test(raw)) return hex;
+  const r = parseInt(raw.slice(0, 2), 16);
+  const g = parseInt(raw.slice(2, 4), 16);
+  const b = parseInt(raw.slice(4, 6), 16);
+  const mix = (c: number) => Math.round(c + (255 - c) * amount);
+  return `#${[mix(r), mix(g), mix(b)].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
+}
+
 function applyThemeVars(theme: BrandingTheme) {
   const root = document.documentElement;
-  if (theme.primary) root.style.setProperty('--primary', theme.primary);
-  if (theme.secondary) root.style.setProperty('--secondary', theme.secondary);
-  if (theme.accent) root.style.setProperty('--accent', theme.accent);
-  // Also set common HSL-free fallbacks used by the shell
-  if (theme.primary) root.style.setProperty('--brand-primary', theme.primary);
-  if (theme.secondary) root.style.setProperty('--brand-secondary', theme.secondary);
-  if (theme.accent) root.style.setProperty('--brand-accent', theme.accent);
+  const primary = theme.primary || '#0b57f0';
+  const secondary = theme.secondary || '#0a2a7a';
+  const accent = theme.accent || '#1d6bff';
+
+  // Solid action color for all primary buttons / CTAs
+  root.style.setProperty('--primary', primary);
+  root.style.setProperty('--primary-foreground', '#ffffff');
+  root.style.setProperty('--ring', accent);
+
+  // Soft surfaces derived from primary so outline/secondary/ghost stay uniform
+  root.style.setProperty('--secondary', mixWithWhite(primary, 0.9));
+  root.style.setProperty('--secondary-foreground', primary);
+  root.style.setProperty('--accent', mixWithWhite(primary, 0.88));
+  root.style.setProperty('--accent-foreground', primary);
+
+  root.style.setProperty('--brand-primary', primary);
+  root.style.setProperty('--brand-secondary', secondary);
+  root.style.setProperty('--brand-accent', accent);
+
+  // Side navigation panel
+  root.style.setProperty('--sidebar-from', primary);
+  root.style.setProperty('--sidebar-to', secondary);
+  root.style.setProperty('--sidebar-accent', accent);
 }
 
 export function BrandProvider({ children }: { children: React.ReactNode }) {

@@ -10,13 +10,17 @@ import { toast } from 'sonner';
 import { useAccess } from '../lib/access';
 import { useRole } from '../lib/roles';
 import { attendanceApi, leaveApi, leaveTypesApi, shiftsApi } from '../lib/api';
+import { ExpenseClaimsPanel, EmployeeActivityPanel } from './AdvancedHRPanels';
+import { ApprovalReasonDialog } from './ApprovalReasonDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Label } from './ui/label';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Clock, CalendarDays, AlertCircle, Plus, Download, MapPin, TrendingUp, Calendar as CalendarIcon } from 'lucide-react';
+import { format, parseISO, isValid } from 'date-fns';
 
 type LeaveReq = {
   id: number;
@@ -68,6 +72,7 @@ export function AttendanceLeave() {
     { value: 'sick', label: 'Sick Leave' },
     { value: 'personal', label: 'Personal' },
   ]);
+  const [leaveDecision, setLeaveDecision] = useState<{ id: number; approve: boolean } | null>(null);
   const canManageShifts = acc.can('attendance', 'update');
 
   const loadShifts = () => {
@@ -134,10 +139,21 @@ export function AttendanceLeave() {
       toast.error('Fill in all fields');
       return;
     }
-    const days = workingDays(form.start, form.end);
+    if (form.end < form.start) {
+      toast.error('To Date must be on or after From Date');
+      return;
+    }
     const label = leaveTypes.find((t) => t.value === form.type)?.label || form.type;
     try {
-      await leaveApi.create({ type: label, startDate: form.start, endDate: form.end, days, reason: form.reason, leaveTypeCode: form.type });
+      const { days: calcDays } = await leaveApi.calculateDays(form.start, form.end);
+      await leaveApi.create({
+        type: label,
+        startDate: form.start,
+        endDate: form.end,
+        days: calcDays,
+        reason: form.reason,
+        leaveTypeCode: form.type,
+      });
       const { requests: rows } = await leaveApi.list();
       setRequests((rows ?? []) as LeaveReq[]);
       toast.success('Leave request submitted');
@@ -221,10 +237,12 @@ export function AttendanceLeave() {
       </div>
 
       <Tabs value={selectedTab} onValueChange={setSelectedTab}>
-        <TabsList className="grid w-full grid-cols-3 max-w-md">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-5 max-w-3xl">
           <TabsTrigger value="attendance">Attendance</TabsTrigger>
           <TabsTrigger value="leave">Leave Requests</TabsTrigger>
           <TabsTrigger value="calendar">Calendar</TabsTrigger>
+          <TabsTrigger value="claims">Claims</TabsTrigger>
+          <TabsTrigger value="activity">Activity</TabsTrigger>
         </TabsList>
         <TabsContent value="attendance" className="space-y-6">
           <Timesheet />
@@ -365,28 +383,11 @@ export function AttendanceLeave() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() =>
-                            void leaveApi
-                              .approve(request.id, false, 'Rejected')
-                              .then(() => leaveApi.list())
-                              .then(({ requests: rows }) => setRequests((rows ?? []) as LeaveReq[]))
-                              .then(() => toast.success('Leave rejected'))
-                              .catch((e) => toast.error(e instanceof Error ? e.message : 'Reject failed'))
-                          }
+                          onClick={() => setLeaveDecision({ id: request.id, approve: false })}
                         >
                           Reject
                         </Button>
-                        <Button
-                          size="sm"
-                          onClick={() =>
-                            void leaveApi
-                              .approve(request.id, true)
-                              .then(() => leaveApi.list())
-                              .then(({ requests: rows }) => setRequests((rows ?? []) as LeaveReq[]))
-                              .then(() => toast.success('Leave approved'))
-                              .catch((e) => toast.error(e instanceof Error ? e.message : 'Approve failed'))
-                          }
-                        >
+                        <Button size="sm" onClick={() => setLeaveDecision({ id: request.id, approve: true })}>
                           Approve
                         </Button>
                       </>
@@ -402,16 +403,127 @@ export function AttendanceLeave() {
             <CardContent className="p-4"><Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate} /></CardContent>
           </Card>
         </TabsContent>
+        <TabsContent value="claims">
+          <ExpenseClaimsPanel />
+        </TabsContent>
+        <TabsContent value="activity">
+          <EmployeeActivityPanel />
+        </TabsContent>
       </Tabs>
+      <ApprovalReasonDialog
+        open={Boolean(leaveDecision)}
+        title={leaveDecision?.approve ? 'Approval reason' : 'Rejection reason'}
+        actionLabel={leaveDecision?.approve ? 'Approve' : 'Reject'}
+        onOpenChange={(open) => {
+          if (!open) setLeaveDecision(null);
+        }}
+        onConfirm={async (comment) => {
+          if (!leaveDecision) return;
+          await leaveApi.approve(leaveDecision.id, leaveDecision.approve, comment);
+          const { requests: rows } = await leaveApi.list();
+          setRequests((rows ?? []) as LeaveReq[]);
+          toast.success(leaveDecision.approve ? 'Leave approved' : 'Leave rejected');
+          setLeaveDecision(null);
+        }}
+      />
     </div>
   );
 }
 
-function RegistrationDateGrid({ form, setForm }: { form: { type: string; start: string; end: string; reason: string }; setForm: React.Dispatch<React.SetStateAction<{ type: string; start: string; end: string; reason: string }>> }) {
+function DatePickerField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (yyyyMmDd: string) => void;
+}) {
+  const selected = value && isValid(parseISO(value)) ? parseISO(value) : undefined;
   return (
-    <div className="grid grid-cols-2 gap-4">
-      <div className="space-y-2"><Label>Start</Label><Input type="date" value={form.start} onChange={(e) => setForm((f) => ({ ...f, start: e.target.value }))} /></div>
-      <div className="space-y-2"><Label>End</Label><Input type="date" value={form.end} onChange={(e) => setForm((f) => ({ ...f, end: e.target.value }))} /></div>
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full justify-start text-left font-normal"
+          >
+            <CalendarIcon className="mr-2 h-4 w-4" />
+            {selected ? format(selected, 'PPP') : <span className="text-muted-foreground">Pick a date</span>}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0" align="start">
+          <Calendar
+            mode="single"
+            selected={selected}
+            onSelect={(d) => {
+              if (!d) return;
+              onChange(format(d, 'yyyy-MM-dd'));
+            }}
+            initialFocus
+          />
+        </PopoverContent>
+      </Popover>
+      {/* Keep native input as accessible fallback / form value mirror */}
+      <Input
+        type="date"
+        className="sr-only"
+        tabIndex={-1}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-hidden
+      />
+    </div>
+  );
+}
+
+function RegistrationDateGrid({
+  form,
+  setForm,
+}: {
+  form: { type: string; start: string; end: string; reason: string };
+  setForm: React.Dispatch<React.SetStateAction<{ type: string; start: string; end: string; reason: string }>>;
+}) {
+  const [days, setDays] = React.useState(0);
+  React.useEffect(() => {
+    if (!form.start || !form.end || form.end < form.start) {
+      setDays(0);
+      return;
+    }
+    void leaveApi
+      .calculateDays(form.start, form.end)
+      .then(({ days: d }) => setDays(d))
+      .catch(() => setDays(workingDays(form.start, form.end)));
+  }, [form.start, form.end]);
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <DatePickerField
+          label="From Date"
+          value={form.start}
+          onChange={(start) =>
+            setForm((f) => ({
+              ...f,
+              start,
+              end: f.end && f.end < start ? start : f.end,
+            }))
+          }
+        />
+        <DatePickerField
+          label="To Date"
+          value={form.end}
+          onChange={(end) => setForm((f) => ({ ...f, end }))}
+        />
+      </div>
+      {form.start && form.end && (
+        <p className="text-sm text-muted-foreground">
+          {form.end < form.start
+            ? 'To Date must be on or after From Date.'
+            : `Calculated leave days (per policy): ${days}`}
+        </p>
+      )}
     </div>
   );
 }

@@ -6,7 +6,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { AccessRestricted } from './components/AccessRestricted';
 import { AccessControl } from './components/AccessControl';
 import { AuditLogs, NotificationsPage } from './components/AuditNotifications';
-import { EmployeeDashboard, HRDashboard } from './components/RoleDashboards';
+import { EmployeeDashboard, HRDashboard, ManagerDashboard } from './components/RoleDashboards';
 import { Toaster } from './components/ui/sonner';
 import { DashboardLayout } from './components/DashboardLayout';
 import { DashboardOverview } from './components/DashboardOverview';
@@ -64,6 +64,8 @@ function Workspace() {
           <DashboardOverview go={setActiveTab} />
         ) : role === 'hr' ? (
           <HRDashboard go={setActiveTab} />
+        ) : role === 'manager' ? (
+          <ManagerDashboard go={setActiveTab} />
         ) : (
           <EmployeeDashboard go={setActiveTab} />
         );

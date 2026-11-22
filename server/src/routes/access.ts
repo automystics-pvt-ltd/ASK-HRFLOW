@@ -30,6 +30,7 @@ router.get('/permissions', requireAuth, async (_req, res) => {
   const roleTemplates: Record<Role, PermissionSet> = {
     admin: { ...defaultRolePermissions.admin },
     hr: { ...defaultRolePermissions.hr },
+    manager: { ...defaultRolePermissions.manager },
     employee: { ...defaultRolePermissions.employee },
   };
   for (const r of rows) {
@@ -43,7 +44,7 @@ router.put('/permissions/:role', requireAuth, attachUser, requirePermission('acc
   const me = await ensureAppUser(req);
   if (me?.role !== 'admin') return res.status(403).json({ error: 'Only admin can edit role templates' });
   const role = req.params.role as Role;
-  if (!['admin', 'hr', 'employee'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  if (!['admin', 'hr', 'employee', 'manager'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
   if (role === 'admin') return res.status(400).json({ error: 'Admin permissions are fixed' });
 
   const permissions = (req.body?.permissions ?? req.body) as PermissionSet;

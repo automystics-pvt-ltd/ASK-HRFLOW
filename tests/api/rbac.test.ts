@@ -67,4 +67,30 @@ describe('API RBAC + health (MySQL)', () => {
     const res = await fetch(`${BASE}/api/employees`);
     assert.ok(res.status === 401 || res.status === 403);
   });
+
+  it('hr can read payslips and payroll components', async () => {
+    const hr = await login('priya.nair@automystics.com');
+    const slips = await fetch(`${BASE}/api/payroll/payslips`, { headers: auth(hr.cookie) });
+    assert.equal(slips.status, 200);
+    const comps = await fetch(`${BASE}/api/payroll/components`, { headers: auth(hr.cookie) });
+    assert.equal(comps.status, 200);
+  });
+
+  it('employee can list own generated cards', async () => {
+    const res = await fetch(`${BASE}/api/cards/generated`, { headers: auth(employee.cookie) });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(Array.isArray(body.cards));
+  });
+
+  it('employee cannot read another employee salary structure', async () => {
+    const emps = await fetch(`${BASE}/api/employees`, { headers: auth(admin.cookie) });
+    const { employees } = await emps.json();
+    const other = employees.find((e: { user_id?: string }) => e.user_id && e.user_id !== 'u-emp');
+    assert.ok(other, 'need another employee');
+    const res = await fetch(`${BASE}/api/payroll/salary-structure/${other.id}`, {
+      headers: auth(employee.cookie),
+    });
+    assert.equal(res.status, 403);
+  });
 });

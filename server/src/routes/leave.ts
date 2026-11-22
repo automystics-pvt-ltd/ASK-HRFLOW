@@ -5,8 +5,15 @@ import { ensureAppUser, requirePermission } from '../middleware/rbac.js';
 import { userCan } from '../lib/users.js';
 import { writeAudit } from '../lib/audit.js';
 import { isoDate } from '../lib/dates.js';
-import { workingDaysBetween } from '../lib/working-days.js';
+import {
+  calculateLeaveDays,
+  getLeavePolicySettings,
+  parseTypePolicy,
+  upsertLeavePolicySettings,
+} from '../lib/leave-policy.js';
+import { getEmployeeManagerUserId, isManagerOf, teamUserIds } from '../lib/team.js';
 import { createApprovalRequest } from './approvals.js';
+import { runLeaveAutoApprove } from '../lib/leave-auto-approve.js';
 
 const router = Router();
 
@@ -15,11 +22,6 @@ async function canManageLeaveTypes(userId: string, role: string) {
     (await userCan(userId, role, 'settings', 'update')) ||
     (await userCan(userId, role, 'attendance', 'update'))
   );
-}
-
-function parseDays(start: string, end: string, explicit?: number) {
-  if (explicit && explicit > 0) return explicit;
-  return workingDaysBetween(start, end);
 }
 
 async function overlaps(userId: string, start: string, end: string, excludeId?: number) {
@@ -31,6 +33,58 @@ async function overlaps(userId: string, start: string, end: string, excludeId?: 
   );
   return Boolean(row);
 }
+
+async function notifyLeaveDecision(userId: string, leaveId: number | string, status: string, comment: string) {
+  await query(
+    `INSERT INTO notices (id, tenant_id, user_id, title, body, kind, read_by)
+     VALUES ($1,$2,$3,$4,$5,'approval','[]')`,
+    [
+      `n-leave-${leaveId}-${Date.now()}`.slice(0, 32),
+      DEFAULT_TENANT,
+      userId,
+      `Leave ${status}`,
+      `Your leave request #${leaveId} was ${status}. Reason: ${comment}`,
+    ],
+  );
+}
+
+router.get('/policy-settings', requireAuth, async (_req, res) => {
+  const settings = await getLeavePolicySettings();
+  res.json({ settings });
+});
+
+router.put('/policy-settings', requireAuth, async (req, res) => {
+  if (!(await canManageLeaveTypes(req.user!.sub, req.user!.role))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const b = req.body || {};
+  const settings = await upsertLeavePolicySettings({
+    autoApproveEnabled: b.autoApproveEnabled,
+    autoApproveDays: b.autoApproveDays != null ? Number(b.autoApproveDays) : undefined,
+    countWeekends: b.countWeekends,
+    countHolidays: b.countHolidays,
+    requireApprovalComment: b.requireApprovalComment,
+  });
+  const u = await ensureAppUser(req);
+  if (u) await writeAudit(u.id, u.name, 'Leave policy', 'Updated leave policy settings');
+  res.json({ settings });
+});
+
+router.post('/calculate-days', requireAuth, async (req, res) => {
+  const { startDate, endDate, halfDay } = req.body || {};
+  if (!startDate || !endDate) return res.status(400).json({ error: 'startDate and endDate required' });
+  if (endDate < startDate) return res.status(400).json({ error: 'End date must be after start date' });
+  const days = await calculateLeaveDays(startDate, endDate, { halfDay: Boolean(halfDay) });
+  res.json({ days });
+});
+
+router.post('/run-auto-approve', requireAuth, async (req, res) => {
+  if (req.user!.role !== 'admin' && req.user!.role !== 'hr') {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const result = await runLeaveAutoApprove();
+  res.json(result);
+});
 
 router.get('/types', requireAuth, async (req, res) => {
   const admin = await canManageLeaveTypes(req.user!.sub, req.user!.role);
@@ -47,6 +101,7 @@ router.get('/types', requireAuth, async (req, res) => {
       carryForward: Boolean(Number(r.carry_forward ?? 0)),
       allowHalfDay: Boolean(Number(r.allow_half_day ?? 1)),
       eligibilityNote: r.eligibility_note ?? null,
+      policy: parseTypePolicy(r.policy_json),
     })),
   });
 });
@@ -55,11 +110,11 @@ router.post('/types', requireAuth, async (req, res) => {
   if (!(await canManageLeaveTypes(req.user!.sub, req.user!.role))) {
     return res.status(403).json({ error: 'Forbidden' });
   }
-  const { code, name, defaultDays, carryForward, allowHalfDay, eligibilityNote, active } = req.body || {};
+  const { code, name, defaultDays, carryForward, allowHalfDay, eligibilityNote, active, policy } = req.body || {};
   if (!code || !name) return res.status(400).json({ error: 'code and name required' });
   const id = await insert(
-    `INSERT INTO leave_types (tenant_id, code, name, default_days, active, carry_forward, allow_half_day, eligibility_note)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    `INSERT INTO leave_types (tenant_id, code, name, default_days, active, carry_forward, allow_half_day, eligibility_note, policy_json)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
     [
       DEFAULT_TENANT,
       String(code).toLowerCase().replace(/\s+/g, '_'),
@@ -69,6 +124,7 @@ router.post('/types', requireAuth, async (req, res) => {
       carryForward ? 1 : 0,
       allowHalfDay === false ? 0 : 1,
       eligibilityNote ?? null,
+      policy ? JSON.stringify(policy) : null,
     ],
   );
   res.status(201).json({ id });
@@ -91,8 +147,9 @@ router.put('/types/:id', requireAuth, async (req, res) => {
        active = COALESCE($3, active),
        carry_forward = COALESCE($4, carry_forward),
        allow_half_day = COALESCE($5, allow_half_day),
-       eligibility_note = COALESCE($6, eligibility_note)
-     WHERE id = $7`,
+       eligibility_note = COALESCE($6, eligibility_note),
+       policy_json = COALESCE($7, policy_json)
+     WHERE id = $8`,
     [
       b.name ?? null,
       b.defaultDays !== undefined ? Number(b.defaultDays) : null,
@@ -100,16 +157,83 @@ router.put('/types/:id', requireAuth, async (req, res) => {
       b.carryForward === undefined ? null : b.carryForward ? 1 : 0,
       b.allowHalfDay === undefined ? null : b.allowHalfDay ? 1 : 0,
       b.eligibilityNote ?? null,
+      b.policy !== undefined ? JSON.stringify(b.policy) : null,
       req.params.id,
     ],
   );
   res.json({ ok: true });
 });
 
+router.get('/summary', requireAuth, async (req, res) => {
+  const userId = req.query.userId ? String(req.query.userId) : req.user!.sub;
+  const canAll = await userCan(req.user!.sub, req.user!.role, 'attendance', 'approve');
+  const isSelf = userId === req.user!.sub;
+  const isMgr = req.user!.role === 'manager' && (await isManagerOf(req.user!.sub, userId));
+  if (!isSelf && !canAll && !isMgr) return res.status(403).json({ error: 'Forbidden' });
+
+  const year = Number(req.query.year) || new Date().getFullYear();
+  const types = await query<{ id: number; code: string; name: string; default_days: string | number }>(
+    'SELECT id, code, name, default_days FROM leave_types WHERE tenant_id = $1 AND active = 1',
+    [DEFAULT_TENANT],
+  );
+  const balances = await query<{ leave_type_id: number; allocated: string | number; used: string | number }>(
+    'SELECT leave_type_id, allocated, used FROM leave_balances WHERE tenant_id = $1 AND user_id = $2 AND year = $3',
+    [DEFAULT_TENANT, userId, year],
+  );
+  const balMap = new Map(balances.map((b) => [Number(b.leave_type_id), b]));
+  const requests = await query<{
+    leave_type_id: number | null;
+    type: string;
+    days: string | number;
+    status: string;
+    start_date: Date | string;
+  }>(
+    `SELECT leave_type_id, type, days, status, start_date FROM leave_requests
+     WHERE tenant_id = $1 AND user_id = $2 AND YEAR(start_date) = $3`,
+    [DEFAULT_TENANT, userId, year],
+  );
+
+  const byType = types.map((t) => {
+    const bal = balMap.get(t.id);
+    const entitlement = Number(bal?.allocated ?? t.default_days);
+    const taken = Number(bal?.used ?? 0);
+    const typed = requests.filter(
+      (r) => Number(r.leave_type_id) === t.id || String(r.type).toLowerCase() === t.name.toLowerCase(),
+    );
+    const approved = typed.filter((r) => r.status === 'Approved').reduce((s, r) => s + Number(r.days), 0);
+    const pending = typed.filter((r) => r.status === 'Pending').reduce((s, r) => s + Number(r.days), 0);
+    const rejected = typed.filter((r) => r.status === 'Rejected').reduce((s, r) => s + Number(r.days), 0);
+    return {
+      code: t.code,
+      name: t.name,
+      entitlement,
+      taken,
+      approved,
+      pending,
+      rejected,
+      remaining: Math.max(0, entitlement - taken - pending),
+    };
+  });
+
+  const monthly: Record<string, number> = {};
+  const quarterly: Record<string, number> = {};
+  for (const r of requests.filter((x) => x.status === 'Approved')) {
+    const d = new Date(String(r.start_date));
+    const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const q = `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
+    monthly[m] = (monthly[m] || 0) + Number(r.days);
+    quarterly[q] = (quarterly[q] || 0) + Number(r.days);
+  }
+  const annual = Object.values(monthly).reduce((s, n) => s + n, 0);
+  res.json({ userId, year, byType, rollups: { monthly, quarterly, annual } });
+});
+
 router.get('/balances', requireAuth, async (req, res) => {
   const userId = req.query.userId ? String(req.query.userId) : req.user!.sub;
   const canAll = await userCan(req.user!.sub, req.user!.role, 'attendance', 'approve');
-  if (userId !== req.user!.sub && !canAll) return res.status(403).json({ error: 'Forbidden' });
+  const isSelf = userId === req.user!.sub;
+  const isMgr = req.user!.role === 'manager' && (await isManagerOf(req.user!.sub, userId));
+  if (!isSelf && !canAll && !isMgr) return res.status(403).json({ error: 'Forbidden' });
 
   const year = Number(req.query.year) || new Date().getFullYear();
   const rows = await query(
@@ -118,21 +242,41 @@ router.get('/balances', requireAuth, async (req, res) => {
      WHERE lb.tenant_id = $1 AND lb.user_id = $2 AND lb.year = $3`,
     [DEFAULT_TENANT, userId, year],
   );
-  const balances: Record<string, { used: number; total: number }> = {};
+  const balances: Record<string, { used: number; total: number; remaining: number }> = {};
   for (const r of rows) {
-    balances[String(r.code)] = { used: Number(r.used), total: Number(r.allocated) };
+    const used = Number(r.used);
+    const total = Number(r.allocated);
+    balances[String(r.code)] = { used, total, remaining: total - used };
   }
   res.json({ balances, year });
 });
 
 router.get('/', requireAuth, requirePermission('attendance', 'read'), async (req, res) => {
   const canAll = await userCan(req.user!.sub, req.user!.role, 'attendance', 'approve');
-  const rows = canAll
-    ? await query('SELECT * FROM leave_requests WHERE tenant_id = $1 ORDER BY created_at DESC', [DEFAULT_TENANT])
-    : await query('SELECT * FROM leave_requests WHERE tenant_id = $1 AND user_id = $2 ORDER BY created_at DESC', [
-        DEFAULT_TENANT,
-        req.user!.sub,
-      ]);
+  let rows;
+  if (canAll && req.user!.role !== 'manager') {
+    rows = await query('SELECT * FROM leave_requests WHERE tenant_id = $1 ORDER BY created_at DESC', [DEFAULT_TENANT]);
+  } else if (req.user!.role === 'manager') {
+    const team = await teamUserIds(req.user!.sub);
+    if (team.length === 0) {
+      rows = await query(
+        'SELECT * FROM leave_requests WHERE tenant_id = $1 AND user_id = $2 ORDER BY created_at DESC',
+        [DEFAULT_TENANT, req.user!.sub],
+      );
+    } else {
+      const placeholders = team.map((_, i) => `$${i + 3}`).join(',');
+      rows = await query(
+        `SELECT * FROM leave_requests WHERE tenant_id = $1 AND (user_id = $2 OR user_id IN (${placeholders}))
+         ORDER BY created_at DESC`,
+        [DEFAULT_TENANT, req.user!.sub, ...team],
+      );
+    }
+  } else {
+    rows = await query('SELECT * FROM leave_requests WHERE tenant_id = $1 AND user_id = $2 ORDER BY created_at DESC', [
+      DEFAULT_TENANT,
+      req.user!.sub,
+    ]);
+  }
 
   res.json({
     requests: rows.map((r) => ({
@@ -147,26 +291,69 @@ router.get('/', requireAuth, requirePermission('attendance', 'read'), async (req
       reason: r.reason,
       comment: r.comment,
       decidedBy: r.decided_by,
+      halfDay: Boolean(Number(r.half_day ?? 0)),
+      autoApproved: Boolean(Number(r.auto_approved ?? 0)),
     })),
   });
 });
 
 router.post('/', requireAuth, requirePermission('attendance', 'create'), async (req, res) => {
-  const { type, startDate, endDate, days, reason, leaveTypeCode } = req.body || {};
+  const { type, startDate, endDate, days, reason, leaveTypeCode, halfDay } = req.body || {};
   if (!type || !startDate || !endDate) return res.status(400).json({ error: 'Missing fields' });
   if (endDate < startDate) return res.status(400).json({ error: 'End date must be after start date' });
 
-  const dayCount = parseDays(startDate, endDate, days);
+  // Always calculate server-side; ignore client days unless half-day
+  const dayCount = await calculateLeaveDays(startDate, endDate, { halfDay: Boolean(halfDay) });
+  void days; // client-supplied days intentionally ignored
+
+  if (dayCount <= 0) return res.status(400).json({ error: 'No leave days in the selected range (check weekends/holidays)' });
+
   if (await overlaps(req.user!.sub, startDate, endDate)) {
     return res.status(409).json({ error: 'Leave dates overlap an existing request' });
   }
 
   const user = await queryOne<{ name: string }>('SELECT name FROM users WHERE id = $1', [req.user!.sub]);
+  const emp = await queryOne(
+    'SELECT * FROM employees WHERE tenant_id = $1 AND user_id = $2 LIMIT 1',
+    [DEFAULT_TENANT, req.user!.sub],
+  );
   const code = leaveTypeCode || String(type).toLowerCase().replace(/\s+/g, '_');
-  const lt = await queryOne<{ id: number }>('SELECT id FROM leave_types WHERE tenant_id = $1 AND code = $2', [
-    DEFAULT_TENANT,
-    code,
-  ]);
+  const lt = await queryOne('SELECT * FROM leave_types WHERE tenant_id = $1 AND code = $2', [DEFAULT_TENANT, code]);
+  const policy = parseTypePolicy(lt?.policy_json);
+
+  if (policy.maxConsecutiveDays != null && dayCount > Number(policy.maxConsecutiveDays)) {
+    return res.status(400).json({ error: `Maximum consecutive leave is ${policy.maxConsecutiveDays} days` });
+  }
+  if (policy.minConsecutiveDays != null && dayCount < Number(policy.minConsecutiveDays) && !halfDay) {
+    return res.status(400).json({ error: `Minimum leave duration is ${policy.minConsecutiveDays} days` });
+  }
+  if (policy.advanceNoticeDays != null && policy.advanceNoticeDays > 0) {
+    const minStart = new Date();
+    minStart.setDate(minStart.getDate() + Number(policy.advanceNoticeDays));
+    if (new Date(startDate + 'T00:00') < minStart) {
+      return res.status(400).json({ error: `Advance notice of ${policy.advanceNoticeDays} day(s) required` });
+    }
+  }
+  if (policy.probationMonths != null && emp?.join_date) {
+    const join = new Date(isoDate(emp.join_date as Date | string) + 'T00:00');
+    const eligible = new Date(join);
+    eligible.setMonth(eligible.getMonth() + Number(policy.probationMonths));
+    if (new Date() < eligible) {
+      return res.status(400).json({ error: 'Leave not available during probation period' });
+    }
+  }
+  if (policy.departments?.length && emp && !policy.departments.includes(String(emp.department))) {
+    return res.status(400).json({ error: 'This leave type is not available for your department' });
+  }
+  if (policy.designations?.length && emp) {
+    const des = String(emp.designation || emp.position || '');
+    if (!policy.designations.includes(des)) {
+      return res.status(400).json({ error: 'This leave type is not available for your designation' });
+    }
+  }
+  if (halfDay && lt && !Number(lt.allow_half_day ?? 1)) {
+    return res.status(400).json({ error: 'Half-day leave is not allowed for this type' });
+  }
 
   if (lt) {
     const year = new Date(startDate).getFullYear();
@@ -180,38 +367,91 @@ router.post('/', requireAuth, requirePermission('attendance', 'create'), async (
   }
 
   const id = await insert(
-    `INSERT INTO leave_requests (tenant_id, user_id, employee_name, leave_type_id, type, start_date, end_date, days, status, reason)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Pending',$9)`,
-    [DEFAULT_TENANT, req.user!.sub, user?.name, lt?.id ?? null, type, startDate, endDate, dayCount, reason ?? ''],
+    `INSERT INTO leave_requests (tenant_id, user_id, employee_name, leave_type_id, type, start_date, end_date, days, status, reason, half_day)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Pending',$9,$10)`,
+    [
+      DEFAULT_TENANT,
+      req.user!.sub,
+      user?.name,
+      lt?.id ?? null,
+      type,
+      startDate,
+      endDate,
+      dayCount,
+      reason ?? '',
+      halfDay ? 1 : 0,
+    ],
   );
 
   let approvalRequestId: number | null = null;
   try {
+    const managerId = await getEmployeeManagerUserId(req.user!.sub);
     approvalRequestId = await createApprovalRequest({
       moduleKey: 'leave',
       entityType: 'leave_request',
       entityId: id,
       requesterId: req.user!.sub,
-      payload: { type, startDate, endDate, days: dayCount, reason: reason ?? '' },
+      preferredApproverUserId: managerId || undefined,
+      preferredApproverRole: managerId ? 'manager' : 'hr',
+      payload: { type, startDate, endDate, days: dayCount, reason: reason ?? '', managerId },
     });
   } catch {
     // Approval tables may not be migrated yet — leave request still succeeds
   }
 
-  res.status(201).json({ id, approvalRequestId });
+  // Notify manager or HR fallback
+  const mgr = await getEmployeeManagerUserId(req.user!.sub);
+  const notifyId =
+    mgr ||
+    (
+      await queryOne<{ id: string }>(
+        `SELECT id FROM users WHERE tenant_id = $1 AND role IN ('hr','admin') AND active = 1 ORDER BY role DESC LIMIT 1`,
+        [DEFAULT_TENANT],
+      )
+    )?.id;
+  if (notifyId) {
+    await query(
+      `INSERT INTO notices (id, tenant_id, user_id, title, body, kind, read_by)
+       VALUES ($1,$2,$3,$4,$5,'approval','[]')`,
+      [
+        `n-lvreq-${id}`.slice(0, 32),
+        DEFAULT_TENANT,
+        notifyId,
+        'Leave request pending',
+        `${user?.name ?? 'Employee'} requested ${dayCount} day(s) of ${type} (${startDate} → ${endDate}).`,
+      ],
+    );
+  }
+
+  res.status(201).json({ id, days: dayCount, approvalRequestId });
 });
 
 router.post('/:id/approve', requireAuth, requirePermission('attendance', 'approve'), async (req, res) => {
   const { approve, comment } = req.body || {};
-  const row = await queryOne('SELECT * FROM leave_requests WHERE id = $1 AND tenant_id = $2', [req.params.id, DEFAULT_TENANT]);
+  const settings = await getLeavePolicySettings();
+  if (settings.requireApprovalComment && (!comment || !String(comment).trim())) {
+    return res.status(400).json({ error: 'Approval/rejection reason is mandatory' });
+  }
+
+  const row = await queryOne('SELECT * FROM leave_requests WHERE id = $1 AND tenant_id = $2', [
+    req.params.id,
+    DEFAULT_TENANT,
+  ]);
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (row.status !== 'Pending') return res.status(400).json({ error: 'Request already decided' });
+  if (row.user_id === req.user!.sub) return res.status(403).json({ error: 'Cannot approve your own leave' });
+
+  if (req.user!.role === 'manager') {
+    const ok = await isManagerOf(req.user!.sub, String(row.user_id));
+    if (!ok) return res.status(403).json({ error: 'Not your team member' });
+  }
 
   const reviewer = await queryOne<{ name: string }>('SELECT name FROM users WHERE id = $1', [req.user!.sub]);
   const status = approve ? 'Approved' : 'Rejected';
+  const reasonText = String(comment || '').trim();
   await query(`UPDATE leave_requests SET status = $1, comment = $2, decided_by = $3 WHERE id = $4`, [
     status,
-    comment ?? null,
+    reasonText || null,
     reviewer?.name,
     req.params.id,
   ]);
@@ -225,7 +465,6 @@ router.post('/:id/approve', requireAuth, requirePermission('attendance', 'approv
     );
   }
 
-  // Keep approval workflow inbox in sync when leave is decided from Attendance UI
   await query(
     `UPDATE approval_requests
      SET status = $1, updated_at = NOW()
@@ -234,8 +473,10 @@ router.post('/:id/approve', requireAuth, requirePermission('attendance', 'approv
     [approve ? 'approved' : 'rejected', DEFAULT_TENANT, String(req.params.id)],
   );
 
+  await notifyLeaveDecision(String(row.user_id), req.params.id, status, reasonText || status);
+
   const u = await ensureAppUser(req);
-  if (u) await writeAudit(u.id, u.name, 'Leave decision', `${status} leave #${req.params.id}`, String(req.params.id));
+  if (u) await writeAudit(u.id, u.name, 'Leave decision', `${status} leave #${req.params.id}: ${reasonText}`, String(req.params.id));
   res.json({ ok: true });
 });
 

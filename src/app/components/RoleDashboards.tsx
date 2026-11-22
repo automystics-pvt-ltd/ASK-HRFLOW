@@ -5,8 +5,10 @@ import { Button } from './ui/button';
 import { Progress } from './ui/progress';
 import { Timesheet } from './Timesheet';
 import { useAccess } from '../lib/access';
-import { dashboardApi, holidaysApi, leaveApi, noticesApi } from '../lib/api';
+import { approvalsApi, dashboardApi, holidaysApi, leaveApi, noticesApi, activityApi, ApiError } from '../lib/api';
+import { ApprovalReasonDialog } from './ApprovalReasonDialog';
 import { CalendarDays, CheckCircle2, ClipboardList, Cake, Megaphone, Users, UserPlus, Clock, FileCheck2, PartyPopper } from 'lucide-react';
+import { toast } from 'sonner';
 
 const card = 'border border-border shadow-[0_8px_24px_-12px_rgba(11,87,240,0.25)] bg-gradient-to-br from-card via-card to-primary/10 rounded-xl';
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
@@ -164,6 +166,128 @@ export function EmployeeDashboard({ go }: { go: (t: string) => void }) {
           </CardContent>
         </Card>
       </div>
+    </div>
+  );
+}
+
+export function ManagerDashboard({ go }: { go: (t: string) => void }) {
+  const [pending, setPending] = useState(0);
+  const [teamReport, setTeamReport] = useState<Record<string, unknown>[]>([]);
+  const [inbox, setInbox] = useState<Record<string, unknown>[]>([]);
+  const [reasonTarget, setReasonTarget] = useState<{ id: number; action: 'approve' | 'reject' } | null>(null);
+
+  const load = () => {
+    void approvalsApi
+      .inbox()
+      .then(({ inbox: rows }) => {
+        setInbox(rows ?? []);
+        setPending((rows ?? []).length);
+      })
+      .catch(() => {});
+    void activityApi
+      .report()
+      .then(({ report }) => setTeamReport(report ?? []))
+      .catch(() => {});
+  };
+  useEffect(load, []);
+
+  const decide = (id: number, action: 'approve' | 'reject') => {
+    setReasonTarget({ id, action });
+  };
+
+  return (
+    <div className="space-y-6">
+      <WelcomeBanner
+        subtitle="Your team’s attendance, leave and claims."
+        chips={
+          <>
+            <Chip>
+              <Users className="w-3.5 h-3.5" />
+              {teamReport.length} reports
+            </Chip>
+            <Chip>
+              <ClipboardList className="w-3.5 h-3.5" />
+              {pending} pending
+            </Chip>
+          </>
+        }
+      />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Stat label="Team size" value={String(teamReport.length)} icon={Users} />
+        <Stat label="Pending approvals" value={String(pending)} icon={ClipboardList} hint="Leave & claims" />
+        <Stat
+          label="Leave remaining (team)"
+          value={String(teamReport.reduce((s, r) => s + Number(r.leaveRemaining ?? 0), 0))}
+          icon={CalendarDays}
+        />
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card className={card}>
+          <CardHeader>
+            <CardTitle className="text-base">Pending approvals</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {inbox.length === 0 && <p className="text-sm text-muted-foreground">No pending items.</p>}
+            {inbox.map((item) => (
+              <div key={String(item.id)} className="flex flex-wrap items-center justify-between gap-2 border rounded-lg p-3">
+                <div>
+                  <p className="text-sm font-medium">
+                    {String(item.requesterName)} · {String(item.typeLabel || item.moduleKey)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{String(item.stepLabel || '')}</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => void decide(Number(item.id), 'reject')}>
+                    Reject
+                  </Button>
+                  <Button size="sm" onClick={() => void decide(Number(item.id), 'approve')}>
+                    Approve
+                  </Button>
+                </div>
+              </div>
+            ))}
+            <Button variant="outline" className="w-full" onClick={() => go('attendance')}>
+              Open attendance & claims
+            </Button>
+          </CardContent>
+        </Card>
+        <Card className={card}>
+          <CardHeader>
+            <CardTitle className="text-base">Team leave summary</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {teamReport.length === 0 && <p className="text-sm text-muted-foreground">No team members assigned.</p>}
+            {teamReport.map((r) => (
+              <div key={String(r.userId ?? r.employeeId)} className="flex justify-between text-sm border-b py-2">
+                <span>{String(r.name)}</span>
+                <span className="text-muted-foreground">
+                  Rem {Number(r.leaveRemaining)} · Pend {Number(r.pendingLeave)}
+                </span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+      <ApprovalReasonDialog
+        open={Boolean(reasonTarget)}
+        title={reasonTarget?.action === 'approve' ? 'Approval reason' : 'Rejection reason'}
+        actionLabel={reasonTarget?.action === 'approve' ? 'Approve' : 'Reject'}
+        onOpenChange={(open) => {
+          if (!open) setReasonTarget(null);
+        }}
+        onConfirm={async (comment) => {
+          if (!reasonTarget) return;
+          try {
+            await approvalsApi.action(reasonTarget.id, reasonTarget.action, comment);
+            toast.success(reasonTarget.action === 'approve' ? 'Approved' : 'Rejected');
+            load();
+          } catch (e) {
+            toast.error(e instanceof ApiError ? e.message : 'Action failed');
+          } finally {
+            setReasonTarget(null);
+          }
+        }}
+      />
     </div>
   );
 }
