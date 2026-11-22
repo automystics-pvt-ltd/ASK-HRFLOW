@@ -23,11 +23,11 @@ declare global {
   }
 }
 
-export function signToken(payload: { id: string; role: Role; email: string }) {
+export function signToken(payload: { id: string; role: Role; email: string }, rememberMe = false) {
   return jwt.sign(
     { sub: payload.id, role: payload.role, email: payload.email },
     process.env.JWT_SECRET || 'dev-secret-change-me',
-    { expiresIn: '7d' },
+    { expiresIn: rememberMe ? '30d' : '12h' },
   );
 }
 
@@ -61,15 +61,20 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-export function setAuthCookie(res: Response, token: string) {
+export function setAuthCookie(res: Response, token: string, rememberMe = false) {
+  const maxAge = rememberMe ? 30 * 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000;
   res.cookie(COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    maxAge,
   });
 }
 
 export function clearAuthCookie(res: Response) {
-  res.clearCookie(COOKIE);
+  res.clearCookie(COOKIE, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+  });
 }

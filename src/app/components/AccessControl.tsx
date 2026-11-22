@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
 import { PermissionMatrix } from './PermissionMatrix';
+import { AdminAuthPanels } from './AdminAuthPanels';
 import { useAccess, roleLabels, departments, type Role, type Action } from '../lib/access';
 import { UserPlus, RotateCcw, History, Info } from 'lucide-react';
 
@@ -37,9 +38,15 @@ export function AccessControl() {
     if (!/^\S+@\S+\.\S+$/.test(form.email)) er.email = 'Enter a valid email';
     setErrors(er);
     if (Object.keys(er).length) return;
-    const err = a.createUser(form);
-    result(err, `${form.name} created. Temporary password: demo123`);
-    if (!err) { setCreateOpen(false); setForm({ name: '', email: '', role: 'employee', department: 'Engineering' }); }
+    void a.createUser(form).then((res) => {
+      if (!res.ok) return toast.error(res.error);
+      toast.success(`${form.name} created. Share the temporary password securely — it is shown once.`);
+      if (res.temporaryPassword) {
+        toast.message('Temporary password', { description: res.temporaryPassword, duration: 20_000 });
+      }
+      setCreateOpen(false);
+      setForm({ name: '', email: '', role: 'employee', department: 'Engineering' });
+    });
   };
 
   return (
@@ -63,6 +70,7 @@ export function AccessControl() {
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="user-perms">User permissions</TabsTrigger>
           <TabsTrigger value="roles">Role templates</TabsTrigger>
+          {a.role === 'admin' && <TabsTrigger value="security">Password & demo access</TabsTrigger>}
           <TabsTrigger value="history">Access history</TabsTrigger>
         </TabsList>
 
@@ -158,6 +166,12 @@ export function AccessControl() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {a.role === 'admin' && (
+          <TabsContent value="security">
+            <AdminAuthPanels />
+          </TabsContent>
+        )}
 
         {/* HISTORY */}
         <TabsContent value="history">

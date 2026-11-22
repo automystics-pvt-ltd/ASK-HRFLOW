@@ -3,6 +3,7 @@ import { CurrencyProvider } from './lib/currency';
 import { AccessProvider, useAccess } from './lib/access';
 import { BrandProvider } from './lib/branding';
 import { LoginScreen } from './components/LoginScreen';
+import { ForcePasswordChange } from './components/ForcePasswordChange';
 import { AccessRestricted } from './components/AccessRestricted';
 import { AccessControl } from './components/AccessControl';
 import { AuditLogs, NotificationsPage } from './components/AuditNotifications';
@@ -74,6 +75,7 @@ function Workspace() {
 
   return (
     <DashboardLayout activeTab={activeTab} setActiveTab={setActiveTab} isDarkMode={isDarkMode} toggleDarkMode={() => setIsDarkMode(!isDarkMode)}>
+      <ForcePasswordChange />
       {renderContent()}
     </DashboardLayout>
   );
