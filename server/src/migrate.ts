@@ -95,6 +95,10 @@ async function ensureAuthColumns() {
   );
 }
 
+async function ensureEmployeeLocationColumns() {
+  await ensureColumn('employees', 'state', 'VARCHAR(120) NULL');
+}
+
 async function main() {
   await ensureMigrationsTable();
   const done = await applied();
@@ -118,6 +122,7 @@ async function main() {
           await ensureManagerRoleEnums();
         }
         if (id === '005_auth_password_security') await ensureAuthColumns();
+        if (id === '006_employee_state') await ensureEmployeeLocationColumns();
         continue;
       }
       const sql = fs.readFileSync(path.join(migDir, file), 'utf8');
@@ -128,6 +133,7 @@ async function main() {
         await ensureManagerRoleEnums();
       }
       if (id === '005_auth_password_security') await ensureAuthColumns();
+      if (id === '006_employee_state') await ensureEmployeeLocationColumns();
       await pool.query('INSERT INTO schema_migrations (id) VALUES (?)', [id]);
       console.log(`Applied migration ${id}`);
     }
@@ -135,6 +141,7 @@ async function main() {
   await ensureBrandingDocsColumns();
   await ensureAdvancedColumns();
   await ensureAuthColumns();
+  await ensureEmployeeLocationColumns();
   try {
     await ensureManagerRoleEnums();
   } catch (e) {
