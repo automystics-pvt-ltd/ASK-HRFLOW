@@ -5,14 +5,40 @@ import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import { pool, query, insert, DEFAULT_TENANT } from './db.js';
 import { defaultRolePermissions, type Role } from './lib/permissions.js';
+import { seedDocumentTemplates } from './routes/hr-documents.js';
+import { seedApprovalWorkflows } from './routes/approvals.js';
 
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+async function columnExists(table: string, column: string): Promise<boolean> {
+  const rows = await query<{ ok: number }>(
+    `SELECT 1 AS ok FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = $1 AND COLUMN_NAME = $2 LIMIT 1`,
+    [table, column],
+  );
+  return rows.length > 0;
+}
+
+async function ensureColumn(table: string, column: string, definition: string) {
+  if (await columnExists(table, column)) return;
+  await pool.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${definition}`);
+}
+
 async function runSchema() {
   const sql = fs.readFileSync(path.join(__dirname, '..', 'schema.sql'), 'utf8');
   await pool.query(sql);
+  const mig002 = path.join(__dirname, '..', 'migrations', '002_branding_docs_holidays_approvals.sql');
+  if (fs.existsSync(mig002)) {
+    await pool.query(fs.readFileSync(mig002, 'utf8'));
+  }
+  await ensureColumn('leave_types', 'carry_forward', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await ensureColumn('leave_types', 'allow_half_day', 'TINYINT(1) NOT NULL DEFAULT 1');
+  await ensureColumn('leave_types', 'eligibility_note', 'VARCHAR(255) NULL');
+  await ensureColumn('leave_types', 'policy_json', 'JSON NULL');
+  await ensureColumn('attendance_events', 'location_address', 'VARCHAR(512) NULL');
+  await ensureColumn('attendance_days', 'location_address', 'VARCHAR(512) NULL');
 }
 
 const allDepts = ['Executive', 'Engineering', 'Product', 'Design', 'Sales', 'Marketing', 'HR', 'Finance'];
@@ -150,8 +176,50 @@ async function seed() {
   await query(
     `INSERT INTO organization_settings (tenant_id, \`key\`, value) VALUES ($1,'company', $2)
      ON DUPLICATE KEY UPDATE value = VALUES(value)`,
-    [DEFAULT_TENANT, JSON.stringify({ name: 'Automystics', timezone: 'Asia/Kolkata', currency: 'USD' })],
+    [
+      DEFAULT_TENANT,
+      JSON.stringify({
+        name: 'Automystics',
+        legalName: 'Automystics Technologies Private Limited',
+        address: 'Bangalore, India',
+        phone: '',
+        email: 'hr@automystics.com',
+        website: 'https://automystics.com',
+        timezone: 'Asia/Kolkata',
+        currency: 'USD',
+      }),
+    ],
   );
+  await query(
+    `INSERT INTO organization_settings (tenant_id, \`key\`, value) VALUES ($1,'theme', $2)
+     ON DUPLICATE KEY UPDATE value = VALUES(value)`,
+    [
+      DEFAULT_TENANT,
+      JSON.stringify({
+        primary: '#1e3a5f',
+        secondary: '#3b82f6',
+        accent: '#0ea5e9',
+        mode: 'system',
+      }),
+    ],
+  );
+
+  await seedDocumentTemplates('u-admin');
+  await seedApprovalWorkflows();
+
+  const yearNow = new Date().getFullYear();
+  const seedHolidays = [
+    [`Republic Day`, `${yearNow}-01-26`, 'public'],
+    [`Independence Day`, `${yearNow}-08-15`, 'public'],
+    [`Gandhi Jayanti`, `${yearNow}-10-02`, 'public'],
+    [`Company Foundation Day`, `${yearNow}-06-01`, 'company'],
+  ];
+  for (const [name, date, kind] of seedHolidays) {
+    await query(
+      `INSERT IGNORE INTO holidays (tenant_id, name, holiday_date, kind, active) VALUES ($1,$2,$3,$4,1)`,
+      [DEFAULT_TENANT, name, date, kind],
+    );
+  }
 
   const existingShift = await query('SELECT id FROM shifts WHERE tenant_id = $1 LIMIT 1', [DEFAULT_TENANT]);
   if (existingShift.length === 0) {

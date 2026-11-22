@@ -20,8 +20,14 @@
 - [x] Swagger at `/api/docs`
 - [x] Seed + `db:migrate` (schema_migrations)
 - [x] Docker Compose (MySQL 8 + app image); Dockerfile; GitHub Actions CI
-- [x] Unit tests (RBAC, working days, dates) + API RBAC integration tests + Playwright login e2e
+- [x] Unit tests (RBAC, working days, dates, geocode) + API RBAC integration tests + Playwright login e2e
 - [x] Environments doc (`docs/ENVIRONMENTS.md`)
+- [x] Branding API (`/api/branding`) — company, theme, logo upload; BrandProvider + CSS vars
+- [x] HR document templates + generate (`/api/hr-documents`) with seeded HTML templates
+- [x] Holidays CRUD (`/api/holidays`) + leave types admin POST/PUT
+- [x] Approval workflows + inbox (`/api/approvals`); leave create spawns request when workflow active
+- [x] Attendance reverse geocoding (Nominatim) → `location_address` (never invents place names)
+- [x] Migration `002` with MySQL 8–safe column ensures via `information_schema` in `migrate.ts`
 
 ## Verified locally
 
@@ -35,6 +41,6 @@
 - [ ] Pagination UI for employee list
 - [ ] Zod validation on all write endpoints
 - [ ] Load/stress suite
-- [ ] Document download / employee-scoped document views (list+upload only today)
+- [ ] Document download / employee-scoped document views (list+upload only today; HR generate path exists)
 - [ ] Shift edit/deactivate UI (create + list only today)
 - [x] Redeployed VPS `https://hrflow.automystics.tech` on MySQL (`/api/health` → mysql)

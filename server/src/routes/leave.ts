@@ -6,8 +6,16 @@ import { userCan } from '../lib/users.js';
 import { writeAudit } from '../lib/audit.js';
 import { isoDate } from '../lib/dates.js';
 import { workingDaysBetween } from '../lib/working-days.js';
+import { createApprovalRequest } from './approvals.js';
 
 const router = Router();
+
+async function canManageLeaveTypes(userId: string, role: string) {
+  return (
+    (await userCan(userId, role, 'settings', 'update')) ||
+    (await userCan(userId, role, 'attendance', 'update'))
+  );
+}
 
 function parseDays(start: string, end: string, explicit?: number) {
   if (explicit && explicit > 0) return explicit;
@@ -24,9 +32,78 @@ async function overlaps(userId: string, start: string, end: string, excludeId?: 
   return Boolean(row);
 }
 
-router.get('/types', requireAuth, async (_req, res) => {
-  const rows = await query('SELECT * FROM leave_types WHERE tenant_id = $1 AND active = 1 ORDER BY name', [DEFAULT_TENANT]);
-  res.json({ types: rows });
+router.get('/types', requireAuth, async (req, res) => {
+  const admin = await canManageLeaveTypes(req.user!.sub, req.user!.role);
+  const rows = admin
+    ? await query('SELECT * FROM leave_types WHERE tenant_id = $1 ORDER BY name', [DEFAULT_TENANT])
+    : await query('SELECT * FROM leave_types WHERE tenant_id = $1 AND active = 1 ORDER BY name', [DEFAULT_TENANT]);
+  res.json({
+    types: rows.map((r) => ({
+      id: r.id,
+      code: r.code,
+      name: r.name,
+      defaultDays: Number(r.default_days),
+      active: Boolean(Number(r.active)),
+      carryForward: Boolean(Number(r.carry_forward ?? 0)),
+      allowHalfDay: Boolean(Number(r.allow_half_day ?? 1)),
+      eligibilityNote: r.eligibility_note ?? null,
+    })),
+  });
+});
+
+router.post('/types', requireAuth, async (req, res) => {
+  if (!(await canManageLeaveTypes(req.user!.sub, req.user!.role))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const { code, name, defaultDays, carryForward, allowHalfDay, eligibilityNote, active } = req.body || {};
+  if (!code || !name) return res.status(400).json({ error: 'code and name required' });
+  const id = await insert(
+    `INSERT INTO leave_types (tenant_id, code, name, default_days, active, carry_forward, allow_half_day, eligibility_note)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [
+      DEFAULT_TENANT,
+      String(code).toLowerCase().replace(/\s+/g, '_'),
+      name,
+      Number(defaultDays) || 0,
+      active === false ? 0 : 1,
+      carryForward ? 1 : 0,
+      allowHalfDay === false ? 0 : 1,
+      eligibilityNote ?? null,
+    ],
+  );
+  res.status(201).json({ id });
+});
+
+router.put('/types/:id', requireAuth, async (req, res) => {
+  if (!(await canManageLeaveTypes(req.user!.sub, req.user!.role))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const row = await queryOne('SELECT id FROM leave_types WHERE id = $1 AND tenant_id = $2', [
+    req.params.id,
+    DEFAULT_TENANT,
+  ]);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const b = req.body || {};
+  await query(
+    `UPDATE leave_types SET
+       name = COALESCE($1, name),
+       default_days = COALESCE($2, default_days),
+       active = COALESCE($3, active),
+       carry_forward = COALESCE($4, carry_forward),
+       allow_half_day = COALESCE($5, allow_half_day),
+       eligibility_note = COALESCE($6, eligibility_note)
+     WHERE id = $7`,
+    [
+      b.name ?? null,
+      b.defaultDays !== undefined ? Number(b.defaultDays) : null,
+      b.active === undefined ? null : b.active ? 1 : 0,
+      b.carryForward === undefined ? null : b.carryForward ? 1 : 0,
+      b.allowHalfDay === undefined ? null : b.allowHalfDay ? 1 : 0,
+      b.eligibilityNote ?? null,
+      req.params.id,
+    ],
+  );
+  res.json({ ok: true });
 });
 
 router.get('/balances', requireAuth, async (req, res) => {
@@ -107,7 +184,21 @@ router.post('/', requireAuth, requirePermission('attendance', 'create'), async (
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Pending',$9)`,
     [DEFAULT_TENANT, req.user!.sub, user?.name, lt?.id ?? null, type, startDate, endDate, dayCount, reason ?? ''],
   );
-  res.status(201).json({ id });
+
+  let approvalRequestId: number | null = null;
+  try {
+    approvalRequestId = await createApprovalRequest({
+      moduleKey: 'leave',
+      entityType: 'leave_request',
+      entityId: id,
+      requesterId: req.user!.sub,
+      payload: { type, startDate, endDate, days: dayCount, reason: reason ?? '' },
+    });
+  } catch {
+    // Approval tables may not be migrated yet — leave request still succeeds
+  }
+
+  res.status(201).json({ id, approvalRequestId });
 });
 
 router.post('/:id/approve', requireAuth, requirePermission('attendance', 'approve'), async (req, res) => {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CurrencyProvider } from './lib/currency';
 import { AccessProvider, useAccess } from './lib/access';
+import { BrandProvider } from './lib/branding';
 import { LoginScreen } from './components/LoginScreen';
 import { AccessRestricted } from './components/AccessRestricted';
 import { AccessControl } from './components/AccessControl';
@@ -72,11 +73,13 @@ function Workspace() {
 
 export default function App() {
   return (
-    <AccessProvider>
-      <CurrencyProvider>
-        <Workspace />
-        <Toaster />
-      </CurrencyProvider>
-    </AccessProvider>
+    <BrandProvider>
+      <AccessProvider>
+        <CurrencyProvider>
+          <Workspace />
+          <Toaster />
+        </CurrencyProvider>
+      </AccessProvider>
+    </BrandProvider>
   );
 }

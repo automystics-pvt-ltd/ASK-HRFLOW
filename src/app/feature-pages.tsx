@@ -9,7 +9,14 @@ import {
   settingsApi,
   noticesApi,
   documentsApi,
+  brandingApi,
+  hrDocumentsApi,
+  holidaysApi,
+  leaveTypesApi,
+  type BrandingCompany,
+  type BrandingTheme,
 } from './lib/api';
+import { useBranding } from './lib/branding';
 import { toast } from 'sonner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import { useRole } from './lib/roles';
@@ -20,6 +27,7 @@ import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Label } from './components/ui/label';
 import { Progress } from './components/ui/progress';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './components/ui/dialog';
 import {
   DollarSign,
   UserPlus,
@@ -38,6 +46,8 @@ import {
   AlertTriangle,
   Upload,
   Loader2,
+  Palette,
+  Trash2,
 } from 'lucide-react';
 
 function PayrollCurrencyAdmin() {
@@ -476,10 +486,27 @@ type DocRow = { id: string; title: string; category: string; mimeType: string; c
 export function SettingsPage() {
   const { can, role } = useRole();
   const acc = useAccess();
-  const [company, setCompany] = useState<{ name?: string; timezone?: string; currency?: string }>({});
+  const branding = useBranding();
+  const [company, setCompany] = useState<BrandingCompany>({});
+  const [theme, setTheme] = useState<BrandingTheme>({});
   const [documents, setDocuments] = useState<DocRow[]>([]);
   const [uploading, setUploading] = useState(false);
   const [docTitle, setDocTitle] = useState('');
+  const [savingCompany, setSavingCompany] = useState(false);
+  const [leaveTypes, setLeaveTypes] = useState<Record<string, unknown>[]>([]);
+  const [holidays, setHolidays] = useState<Record<string, unknown>[]>([]);
+  const [templates, setTemplates] = useState<Record<string, unknown>[]>([]);
+  const [employees, setEmployees] = useState<{ id: number; name: string }[]>([]);
+  const [genOpen, setGenOpen] = useState(false);
+  const [genForm, setGenForm] = useState({ employeeId: '', docType: 'offer_letter', relievingDate: '', salary: '' });
+  const [holidayForm, setHolidayForm] = useState({ name: '', holidayDate: '', kind: 'public' });
+  const [ltForm, setLtForm] = useState({
+    code: '',
+    name: '',
+    defaultDays: '10',
+    carryForward: false,
+    allowHalfDay: true,
+  });
 
   const loadDocuments = () => {
     if (!acc.can('employees', 'read')) return;
@@ -499,15 +526,53 @@ export function SettingsPage() {
       .catch(() => {});
   };
 
+  const loadAdminData = () => {
+    if (can.canManageCompany || acc.can('attendance', 'update')) {
+      leaveTypesApi
+        .list()
+        .then(({ types }) => setLeaveTypes(types ?? []))
+        .catch(() => {});
+    }
+    if (acc.can('attendance', 'read')) {
+      holidaysApi
+        .list()
+        .then(({ holidays: rows }) => setHolidays(rows ?? []))
+        .catch(() => {});
+    }
+    if (acc.can('settings', 'read')) {
+      hrDocumentsApi
+        .templates()
+        .then(({ templates: rows }) => setTemplates(rows ?? []))
+        .catch(() => {});
+    }
+    if (acc.can('employees', 'read')) {
+      employeesApi
+        .list({ limit: 200 })
+        .then(({ employees: rows }) =>
+          setEmployees((rows ?? []).map((e) => ({ id: Number(e.id), name: String(e.name ?? '') }))),
+        )
+        .catch(() => {});
+    }
+  };
+
   useEffect(() => {
-    settingsApi
+    brandingApi
       .get()
-      .then(({ settings }) => {
-        const c = settings.company;
-        if (c && typeof c === 'object') setCompany(c as { name?: string; timezone?: string; currency?: string });
+      .then((data) => {
+        setCompany(data.company ?? {});
+        setTheme(data.theme ?? {});
       })
-      .catch(() => {});
+      .catch(() => {
+        settingsApi
+          .get()
+          .then(({ settings }) => {
+            const c = settings.company;
+            if (c && typeof c === 'object') setCompany(c as BrandingCompany);
+          })
+          .catch(() => {});
+      });
     loadDocuments();
+    loadAdminData();
   }, []);
 
   const onUpload = async (file: File | null) => {
@@ -529,6 +594,50 @@ export function SettingsPage() {
     }
   };
 
+  const saveCompany = async () => {
+    setSavingCompany(true);
+    try {
+      await brandingApi.updateCompany(company);
+      await branding.refresh();
+      toast.success('Company info saved');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSavingCompany(false);
+    }
+  };
+
+  const saveTheme = async () => {
+    try {
+      await brandingApi.updateTheme(theme);
+      await branding.refresh();
+      toast.success('Theme saved');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Save failed');
+    }
+  };
+
+  const onLogoUpload = async (file: File | null) => {
+    if (!file) return;
+    try {
+      await brandingApi.uploadLogo(file);
+      await branding.refresh();
+      toast.success('Logo uploaded');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Logo upload failed');
+    }
+  };
+
+  const removeLogo = async () => {
+    try {
+      await brandingApi.removeLogo();
+      await branding.refresh();
+      toast.success('Logo removed');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -544,29 +653,414 @@ export function SettingsPage() {
           {company.name ? (
             <>
               {' '}
-              Organization: <span className="font-medium text-foreground">{company.name}</span> ({company.timezone}, {company.currency}).
+              Organization: <span className="font-medium text-foreground">{company.name}</span>
+              {company.timezone ? ` (${company.timezone}${company.currency ? `, ${company.currency}` : ''})` : ''}.
             </>
           ) : null}
         </CardContent>
       </Card>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {can.canManageCompany && (
+
+      {can.canManageCompany && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="border border-border rounded-xl">
             <CardHeader>
-              <CardTitle>Company Settings</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="w-5 h-5" />
+                Company info
+              </CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground">Configure company-wide HR policies</p>
+            <CardContent className="space-y-3">
+              {(
+                [
+                  ['name', 'Name'],
+                  ['legalName', 'Legal name'],
+                  ['address', 'Address'],
+                  ['phone', 'Phone'],
+                  ['email', 'Email'],
+                  ['website', 'Website'],
+                ] as const
+              ).map(([key, label]) => (
+                <div key={key} className="space-y-1.5">
+                  <Label>{label}</Label>
+                  <Input
+                    value={String(company[key] ?? '')}
+                    onChange={(e) => setCompany({ ...company, [key]: e.target.value })}
+                  />
+                </div>
+              ))}
+              <Button onClick={() => void saveCompany()} disabled={savingCompany}>
+                {savingCompany ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                Save company
+              </Button>
             </CardContent>
           </Card>
-        )}
+
+          <Card className="border border-border rounded-xl">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Palette className="w-5 h-5" />
+                Branding & theme
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-4">
+                {branding.logoUrl ? (
+                  <img src={branding.logoUrl} alt="Logo" className="h-12 max-w-[160px] object-contain" />
+                ) : (
+                  <p className="text-sm text-muted-foreground">No custom logo</p>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Input type="file" accept="image/*" onChange={(e) => void onLogoUpload(e.target.files?.[0] ?? null)} />
+                {branding.logoUrl && (
+                  <Button variant="outline" className="gap-2" onClick={() => void removeLogo()}>
+                    <Trash2 className="w-4 h-4" /> Remove
+                  </Button>
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                {(['primary', 'secondary', 'accent'] as const).map((key) => (
+                  <div key={key} className="space-y-1.5">
+                    <Label className="capitalize">{key}</Label>
+                    <Input
+                      type="color"
+                      value={String(theme[key] ?? '#1e3a5f')}
+                      onChange={(e) => setTheme({ ...theme, [key]: e.target.value })}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-1.5">
+                <Label>Mode</Label>
+                <Select
+                  value={theme.mode ?? 'system'}
+                  onValueChange={(v) => setTheme({ ...theme, mode: v as BrandingTheme['mode'] })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="system">System</SelectItem>
+                    <SelectItem value="light">Light</SelectItem>
+                    <SelectItem value="dark">Dark</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button onClick={() => void saveTheme()}>Save theme</Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {(can.canManageCompany || acc.can('attendance', 'update')) && (
+        <Card className="border border-border rounded-xl">
+          <CardHeader>
+            <CardTitle>Leave types</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 items-end">
+              <div className="space-y-1">
+                <Label>Code</Label>
+                <Input value={ltForm.code} onChange={(e) => setLtForm({ ...ltForm, code: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label>Name</Label>
+                <Input value={ltForm.name} onChange={(e) => setLtForm({ ...ltForm, name: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label>Default days</Label>
+                <Input
+                  type="number"
+                  value={ltForm.defaultDays}
+                  onChange={(e) => setLtForm({ ...ltForm, defaultDays: e.target.value })}
+                />
+              </div>
+              <Button
+                onClick={() => {
+                  void leaveTypesApi
+                    .create({
+                      code: ltForm.code,
+                      name: ltForm.name,
+                      defaultDays: Number(ltForm.defaultDays),
+                      carryForward: ltForm.carryForward,
+                      allowHalfDay: ltForm.allowHalfDay,
+                    })
+                    .then(() => {
+                      toast.success('Leave type created');
+                      setLtForm({ code: '', name: '', defaultDays: '10', carryForward: false, allowHalfDay: true });
+                      loadAdminData();
+                    })
+                    .catch((e) => toast.error(e instanceof Error ? e.message : 'Failed'));
+                }}
+              >
+                Add
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {leaveTypes.map((t) => (
+                <div key={String(t.id)} className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg border border-border/50">
+                  <div>
+                    <p className="font-medium">
+                      {String(t.name)} <span className="text-muted-foreground text-xs">({String(t.code)})</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {Number(t.defaultDays ?? 0)} days · half-day {t.allowHalfDay ? 'yes' : 'no'} · carry-forward{' '}
+                      {t.carryForward ? 'yes' : 'no'}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      void leaveTypesApi
+                        .update(Number(t.id), { active: !t.active })
+                        .then(() => {
+                          toast.success(t.active ? 'Deactivated' : 'Activated');
+                          loadAdminData();
+                        })
+                        .catch((e) => toast.error(e instanceof Error ? e.message : 'Failed'));
+                    }}
+                  >
+                    {t.active ? 'Deactivate' : 'Activate'}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {can.canManageCompany && (
+        <Card className="border border-border rounded-xl">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calendar className="w-5 h-5" />
+              Holidays
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
+              <div className="space-y-1">
+                <Label>Name</Label>
+                <Input
+                  value={holidayForm.name}
+                  onChange={(e) => setHolidayForm({ ...holidayForm, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Date</Label>
+                <Input
+                  type="date"
+                  value={holidayForm.holidayDate}
+                  onChange={(e) => setHolidayForm({ ...holidayForm, holidayDate: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Kind</Label>
+                <Select value={holidayForm.kind} onValueChange={(v) => setHolidayForm({ ...holidayForm, kind: v })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="public">Public</SelectItem>
+                    <SelectItem value="optional">Optional</SelectItem>
+                    <SelectItem value="company">Company</SelectItem>
+                    <SelectItem value="weekly_off">Weekly off</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                onClick={() => {
+                  void holidaysApi
+                    .create(holidayForm)
+                    .then(() => {
+                      toast.success('Holiday added');
+                      setHolidayForm({ name: '', holidayDate: '', kind: 'public' });
+                      loadAdminData();
+                    })
+                    .catch((e) => toast.error(e instanceof Error ? e.message : 'Failed'));
+                }}
+              >
+                Add holiday
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {holidays.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No holidays configured.</p>
+              ) : (
+                holidays.map((h) => (
+                  <div key={String(h.id)} className="flex items-center justify-between gap-2 p-3 rounded-lg border border-border/50">
+                    <div>
+                      <p className="font-medium">{String(h.name)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {String(h.holidayDate)} · {String(h.kind)}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        void holidaysApi
+                          .remove(Number(h.id))
+                          .then(() => {
+                            toast.success('Removed');
+                            loadAdminData();
+                          })
+                          .catch((e) => toast.error(e instanceof Error ? e.message : 'Failed'));
+                      }}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {acc.can('settings', 'read') && (
+        <Card className="border border-border rounded-xl">
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              HR document templates
+            </CardTitle>
+            {acc.can('employees', 'create') && (
+              <Dialog open={genOpen} onOpenChange={setGenOpen}>
+                <DialogTrigger asChild>
+                  <Button size="sm">Generate document</Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Generate HR document</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-3 py-2">
+                    <div className="space-y-1.5">
+                      <Label>Employee</Label>
+                      <Select
+                        value={genForm.employeeId}
+                        onValueChange={(v) => setGenForm({ ...genForm, employeeId: v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select employee" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {employees.map((e) => (
+                            <SelectItem key={e.id} value={String(e.id)}>
+                              {e.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Document type</Label>
+                      <Select value={genForm.docType} onValueChange={(v) => setGenForm({ ...genForm, docType: v })}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {templates
+                            .filter((t) => t.active)
+                            .map((t) => (
+                              <SelectItem key={String(t.id)} value={String(t.docType)}>
+                                {String(t.name)}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Relieving date (optional)</Label>
+                      <Input
+                        type="date"
+                        value={genForm.relievingDate}
+                        onChange={(e) => setGenForm({ ...genForm, relievingDate: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Salary override (optional)</Label>
+                      <Input
+                        value={genForm.salary}
+                        onChange={(e) => setGenForm({ ...genForm, salary: e.target.value })}
+                      />
+                    </div>
+                    <Button
+                      onClick={() => {
+                        if (!genForm.employeeId) {
+                          toast.error('Select an employee');
+                          return;
+                        }
+                        const fields: Record<string, string> = {};
+                        if (genForm.relievingDate) fields.relieving_date = genForm.relievingDate;
+                        if (genForm.salary) fields.salary = genForm.salary;
+                        void hrDocumentsApi
+                          .generate({
+                            employeeId: Number(genForm.employeeId),
+                            docType: genForm.docType,
+                            fields,
+                          })
+                          .then(({ id, title }) => {
+                            toast.success(`Generated: ${title}`);
+                            setGenOpen(false);
+                            window.open(hrDocumentsApi.viewUrl(id), '_blank');
+                          })
+                          .catch((e) => toast.error(e instanceof Error ? e.message : 'Generate failed'));
+                      }}
+                    >
+                      Generate
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {templates.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No templates yet.</p>
+            ) : (
+              templates.map((t) => (
+                <div key={String(t.id)} className="flex items-center justify-between gap-2 p-3 rounded-lg border border-border/50">
+                  <div>
+                    <p className="font-medium">{String(t.name)}</p>
+                    <p className="text-xs text-muted-foreground">{String(t.docType)} · v{Number(t.version)}</p>
+                  </div>
+                  {can.canManageCompany && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        void hrDocumentsApi
+                          .activateTemplate(String(t.id), !t.active)
+                          .then(() => {
+                            toast.success(t.active ? 'Deactivated' : 'Activated');
+                            loadAdminData();
+                          })
+                          .catch((e) => toast.error(e instanceof Error ? e.message : 'Failed'));
+                      }}
+                    >
+                      {t.active ? 'Deactivate' : 'Activate'}
+                    </Button>
+                  )}
+                  {!can.canManageCompany && (
+                    <Badge variant={t.active ? 'default' : 'secondary'}>{t.active ? 'Active' : 'Inactive'}</Badge>
+                  )}
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {can.canManageAccess && (
           <Card className="border border-border rounded-xl">
             <CardHeader>
               <CardTitle>User Permissions</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-muted-foreground">Manage user roles and access permissions</p>
+              <p className="text-muted-foreground">Manage user roles and access permissions from Access Control.</p>
             </CardContent>
           </Card>
         )}

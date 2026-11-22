@@ -202,3 +202,101 @@ export const shiftsApi = {
   create: (payload: { name: string; startTime: string; endTime: string; graceMinutes?: number }) =>
     api<{ id: number }>('/api/shifts', { method: 'POST', body: JSON.stringify(payload) }),
 };
+
+export type BrandingCompany = {
+  name?: string;
+  legalName?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  timezone?: string;
+  currency?: string;
+};
+
+export type BrandingTheme = {
+  primary?: string;
+  secondary?: string;
+  accent?: string;
+  mode?: 'system' | 'light' | 'dark';
+};
+
+export const brandingApi = {
+  get: () =>
+    api<{ company: BrandingCompany; theme: BrandingTheme; logoUrl: string | null }>('/api/branding'),
+  updateCompany: (company: BrandingCompany) =>
+    api<{ company: BrandingCompany }>('/api/branding/company', {
+      method: 'PUT',
+      body: JSON.stringify(company),
+    }),
+  updateTheme: (theme: BrandingTheme) =>
+    api<{ theme: BrandingTheme }>('/api/branding/theme', {
+      method: 'PUT',
+      body: JSON.stringify(theme),
+    }),
+  uploadLogo: async (file: File) => {
+    const fd = new FormData();
+    fd.append('logo', file);
+    const res = await fetch('/api/branding/logo', { method: 'POST', credentials: 'include', body: fd });
+    const body = await parseJson(res);
+    if (!res.ok) throw new ApiError(String((body as { error?: string })?.error ?? 'Upload failed'), res.status, body);
+    return body as { logoUrl: string };
+  },
+  removeLogo: () => api<{ ok: boolean; logoUrl: null }>('/api/branding/logo', { method: 'DELETE' }),
+};
+
+export const hrDocumentsApi = {
+  templates: () => api<{ templates: Record<string, unknown>[] }>('/api/hr-documents/templates'),
+  activateTemplate: (id: string, active: boolean) =>
+    api<{ ok: boolean }>(`/api/hr-documents/templates/${id}/activate`, {
+      method: 'POST',
+      body: JSON.stringify({ active }),
+    }),
+  generate: (payload: { employeeId: number; docType: string; fields?: Record<string, string> }) =>
+    api<{ id: string; title: string }>('/api/hr-documents/generate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  generated: () => api<{ documents: Record<string, unknown>[] }>('/api/hr-documents/generated'),
+  viewUrl: (id: string) => `/api/hr-documents/generated/${id}`,
+};
+
+export const holidaysApi = {
+  list: (year?: number) =>
+    api<{ holidays: Record<string, unknown>[] }>(
+      year ? `/api/holidays?year=${year}` : '/api/holidays',
+    ),
+  create: (payload: {
+    name: string;
+    holidayDate: string;
+    kind?: string;
+    location?: string;
+    active?: boolean;
+  }) => api<{ id: number }>('/api/holidays', { method: 'POST', body: JSON.stringify(payload) }),
+  update: (id: number, payload: Record<string, unknown>) =>
+    api<{ ok: boolean }>(`/api/holidays/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  remove: (id: number) => api<{ ok: boolean }>(`/api/holidays/${id}`, { method: 'DELETE' }),
+};
+
+export const leaveTypesApi = {
+  list: () => api<{ types: Record<string, unknown>[] }>('/api/leave/types'),
+  create: (payload: Record<string, unknown>) =>
+    api<{ id: number }>('/api/leave/types', { method: 'POST', body: JSON.stringify(payload) }),
+  update: (id: number, payload: Record<string, unknown>) =>
+    api<{ ok: boolean }>(`/api/leave/types/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+};
+
+export const approvalsApi = {
+  workflows: () => api<{ workflows: Record<string, unknown>[] }>('/api/approvals/workflows'),
+  updateWorkflow: (id: number, payload: Record<string, unknown>) =>
+    api<{ ok: boolean }>(`/api/approvals/workflows/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  inbox: () => api<{ inbox: Record<string, unknown>[] }>('/api/approvals/inbox'),
+  action: (id: number, action: 'approve' | 'reject' | 'request_changes', comment?: string) =>
+    api<{ ok: boolean }>(`/api/approvals/${id}/action`, {
+      method: 'POST',
+      body: JSON.stringify({ action, comment }),
+    }),
+};

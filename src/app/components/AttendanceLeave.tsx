@@ -33,7 +33,15 @@ type LeaveReq = {
   decidedBy?: string;
 };
 
-type AttendanceRow = { date: string; checkIn: string; checkOut: string; status: string; hours: number; location: string };
+type AttendanceRow = {
+  date: string;
+  checkIn: string;
+  checkOut: string;
+  status: string;
+  hours: number;
+  location: string;
+  locationAddress?: string | null;
+};
 
 const leaveTypes = [
   { value: 'vacation', label: 'Vacation', icon: Plane },
@@ -95,7 +103,8 @@ export function AttendanceLeave() {
             checkOut: r.checkOut ? new Date(String(r.checkOut)).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '—',
             status: String(r.status ?? 'Present'),
             hours: Number(r.hours ?? 0),
-            location: String(r.location ?? 'Office'),
+            location: String(r.locationAddress || r.location || 'Office'),
+            locationAddress: r.locationAddress ? String(r.locationAddress) : null,
           })),
         );
       })
@@ -374,11 +383,18 @@ function RegistrationDateGrid({ form, setForm }: { form: { type: string; start: 
   );
 }
 
-function AttendanceRecordRow({ record }: { record: { date: string; checkIn: string; checkOut: string; location: string } }) {
+function AttendanceRecordRow({
+  record,
+}: {
+  record: { date: string; checkIn: string; checkOut: string; location: string; locationAddress?: string | null };
+}) {
   return (
     <div>
       <p className="font-medium">{new Date(record.date).toLocaleDateString()}</p>
-      <p className="text-sm text-muted-foreground">In: {record.checkIn} · Out: {record.checkOut} · <MapPin className="inline w-3 h-3" /> {record.location}</p>
+      <p className="text-sm text-muted-foreground">
+        In: {record.checkIn} · Out: {record.checkOut} · <MapPin className="inline w-3 h-3" />{' '}
+        {record.locationAddress || record.location}
+      </p>
     </div>
   );
 }
