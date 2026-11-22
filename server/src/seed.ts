@@ -136,11 +136,13 @@ async function seed() {
   }
 
   const employees = [
-    ['u-emp2', 'Sarah Johnson', 'sarah.johnson@company.com', '+1 (555) 123-4567', 'Engineering', 'Senior Developer', 'Active', '2022-03-15', 95000, 'New York', 'United States', 'John Smith', '["React","Node.js","TypeScript"]'],
+    ['u-mgr', 'Ananya Manager', 'ananya.manager@automystics.com', '+1 (555) 100-2000', 'Engineering', 'Engineering Manager', 'Active', '2020-01-15', 140000, 'Bangalore', 'India', null, '["Leadership","Agile"]'],
+    ['u-hr', 'Priya Nair', 'priya.nair@automystics.com', '+1 (555) 100-3000', 'HR', 'HR Manager', 'Active', '2019-05-01', 120000, 'Mumbai', 'India', null, '["People Ops","Compliance"]'],
+    ['u-emp2', 'Sarah Johnson', 'sarah.johnson@company.com', '+1 (555) 123-4567', 'Engineering', 'Senior Developer', 'Active', '2022-03-15', 95000, 'New York', 'United States', 'Ananya Manager', '["React","Node.js","TypeScript"]'],
     [null, 'Mike Chen', 'mike.chen@company.com', '+1 (555) 234-5678', 'Product', 'Product Manager', 'Active', '2021-08-22', 110000, 'San Francisco', 'United States', 'Jane Doe', '["Product Strategy","Analytics"]'],
-    ['u-emp3', 'Lisa Brown', 'lisa.brown@company.com', '+1 (555) 345-6789', 'Design', 'UX Designer', 'On Leave', '2023-01-10', 85000, 'London', 'United Kingdom', 'Alex Wilson', '["Figma","User Research"]'],
+    ['u-emp3', 'Lisa Brown', 'lisa.brown@company.com', '+1 (555) 345-6789', 'Design', 'UX Designer', 'On Leave', '2023-01-10', 85000, 'London', 'United Kingdom', 'Ananya Manager', '["Figma","User Research"]'],
     [null, 'David Wilson', 'david.wilson@company.com', '+1 (555) 456-7890', 'Sales', 'Sales Executive', 'Active', '2020-11-05', 75000, 'Dubai', 'United Arab Emirates', 'Sarah Miller', '["CRM","Negotiation"]'],
-    ['u-emp', 'Rahul Verma', 'rahul.verma@automystics.com', null, 'Engineering', 'Software Engineer', 'Active', '2023-06-01', 72000, 'Bangalore', 'India', 'John Smith', '["TypeScript","MySQL"]'],
+    ['u-emp', 'Rahul Verma', 'rahul.verma@automystics.com', null, 'Engineering', 'Software Engineer', 'Active', '2023-06-01', 72000, 'Bangalore', 'India', 'Ananya Manager', '["TypeScript","MySQL"]'],
   ];
 
   await query('DELETE FROM employees WHERE tenant_id = $1', [DEFAULT_TENANT]);
@@ -282,21 +284,21 @@ async function seed() {
     [DEFAULT_TENANT],
   );
 
-  const expenseCats: [string, string, number | null][] = [
-    ['mobile', 'Mobile', 2000],
-    ['internet', 'Internet', 1500],
-    ['travel', 'Travel', null],
-    ['fuel', 'Fuel', 5000],
-    ['food', 'Food', 1000],
-    ['accommodation', 'Accommodation', null],
-    ['other', 'Other', null],
+  const expenseCats: [string, string, number | null, number][] = [
+    ['mobile', 'Mobile', 2000, 1],
+    ['internet', 'Internet', 1500, 1],
+    ['travel', 'Travel', null, 1],
+    ['fuel', 'Fuel', 5000, 1],
+    ['food', 'Food', 1000, 1],
+    ['accommodation', 'Accommodation', null, 1],
+    ['other', 'Other', 500, 0],
   ];
-  for (const [code, name, max] of expenseCats) {
+  for (const [code, name, max, requireReceipt] of expenseCats) {
     await query(
       `INSERT INTO expense_categories (tenant_id, code, name, max_amount, require_receipt, active)
-       VALUES ($1,$2,$3,$4,1,1)
-       ON DUPLICATE KEY UPDATE name = VALUES(name), max_amount = VALUES(max_amount)`,
-      [DEFAULT_TENANT, code, name, max],
+       VALUES ($1,$2,$3,$4,$5,1)
+       ON DUPLICATE KEY UPDATE name = VALUES(name), max_amount = VALUES(max_amount), require_receipt = VALUES(require_receipt)`,
+      [DEFAULT_TENANT, code, name, max, requireReceipt],
     );
   }
 

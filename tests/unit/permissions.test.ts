@@ -11,11 +11,13 @@ describe('RBAC defaultRolePermissions', () => {
     assert.equal(hasAction(p, 'payroll', 'update'), true);
   });
 
-  it('hr can manage employees but not payroll update or access delete', () => {
+  it('hr can manage employees and read payroll but not payroll update or access delete', () => {
     const p = defaultRolePermissions.hr;
     assert.equal(hasAction(p, 'employees', 'create'), true);
     assert.equal(hasAction(p, 'attendance', 'approve'), true);
+    assert.equal(hasAction(p, 'payroll', 'read'), true);
     assert.equal(hasAction(p, 'payroll', 'update'), false);
+    assert.equal(hasAction(p, 'reports', 'read'), true);
     assert.equal(hasAction(p, 'access', 'delete'), false);
   });
 

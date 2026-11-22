@@ -8,7 +8,11 @@ test.describe('Admin dashboard approvals', () => {
       data: { email: 'rahul.verma@automystics.com', password: 'demo123' },
     });
     expect(loginEmp.ok()).toBeTruthy();
-    const start = `2027-04-${String(1 + Math.floor(Math.random() * 20)).padStart(2, '0')}`;
+    // Unique weekday far ahead to avoid weekend/holiday policy and overlap flakes
+    const d = new Date(Date.UTC(2028, 0, 3)); // 2028-01-03 Monday
+    d.setUTCDate(d.getUTCDate() + Math.floor(Math.random() * 200));
+    while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1);
+    const start = d.toISOString().slice(0, 10);
     const leaveRes = await emp.post('/api/leave', {
       data: {
         type: 'Personal',

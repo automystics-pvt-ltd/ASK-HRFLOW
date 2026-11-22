@@ -15,20 +15,27 @@ fs.mkdirSync(uploadsDir, { recursive: true });
 
 const upload = multer({ dest: uploadsDir });
 
-function crudRouter(table: string, module: string, map?: (r: Record<string, unknown>) => unknown) {
-  const router = Router();
-  router.get('/', requireAuth, requirePermission(module, 'read'), async (_req, res) => {
-    const rows = await query(`SELECT * FROM ${table} WHERE tenant_id = $1 ORDER BY id DESC`, [DEFAULT_TENANT]);
-    res.json({ items: map ? rows.map(map) : rows });
-  });
-  router.post('/', requireAuth, requirePermission(module, 'create'), async (req, res) => {
-    res.status(501).json({ error: `Stub create for ${table}`, body: req.body });
-  });
-  return router;
-}
-
 export const payrollRouter = Router();
-payrollRouter.get('/runs', requireAuth, requirePermission('payroll', 'read'), async (_req, res) => {
+payrollRouter.get('/runs', requireAuth, requirePermission('payroll', 'read'), async (req, res) => {
+  const canAll = req.user!.role === 'admin' || req.user!.role === 'hr';
+  // Company-wide payroll run totals are confidential — employees/managers only see runs
+  // that produced their own payslip (period labels without aggregate totals).
+  if (!canAll) {
+    const emp = await queryOne<{ id: number }>('SELECT id FROM employees WHERE tenant_id = $1 AND user_id = $2', [
+      DEFAULT_TENANT,
+      req.user!.sub,
+    ]);
+    if (!emp) return res.json({ runs: [] });
+    const rows = await query(
+      `SELECT pr.id, pr.period_label, pr.period_start, pr.period_end, pr.status, NULL AS total_amount
+       FROM payroll_runs pr
+       JOIN payslips p ON p.payroll_run_id = pr.id AND p.employee_id = $2
+       WHERE pr.tenant_id = $1
+       ORDER BY pr.period_start DESC`,
+      [DEFAULT_TENANT, emp.id],
+    );
+    return res.json({ runs: rows });
+  }
   const rows = await query('SELECT * FROM payroll_runs WHERE tenant_id = $1 ORDER BY period_start DESC', [DEFAULT_TENANT]);
   res.json({ runs: rows });
 });
@@ -58,6 +65,16 @@ payrollRouter.get('/payslips', requireAuth, requirePermission('payroll', 'read')
 });
 
 payrollRouter.get('/salary-structure/:employeeId', requireAuth, requirePermission('payroll', 'read'), async (req, res) => {
+  const canAll = req.user!.role === 'admin' || req.user!.role === 'hr';
+  if (!canAll) {
+    const self = await queryOne<{ id: number }>('SELECT id FROM employees WHERE tenant_id = $1 AND user_id = $2', [
+      DEFAULT_TENANT,
+      req.user!.sub,
+    ]);
+    if (!self || String(self.id) !== String(req.params.employeeId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+  }
   const rows = await query(
     `SELECT * FROM employee_salary_structures
      WHERE tenant_id = $1 AND employee_id = $2 ORDER BY effective_from DESC`,
@@ -299,15 +316,38 @@ recruitmentRouter.post('/candidates', requireAuth, requirePermission('recruitmen
 });
 
 export const performanceRouter = Router();
-performanceRouter.get('/reviews', requireAuth, requirePermission('performance', 'read'), async (_req, res) => {
-  const rows = await query(
-    `SELECT pr.*, e.name AS employee_name, e.position, e.department
-     FROM performance_reviews pr
-     LEFT JOIN employees e ON e.id = pr.employee_id
-     WHERE pr.tenant_id = $1
-     ORDER BY pr.created_at DESC`,
-    [DEFAULT_TENANT],
-  );
+performanceRouter.get('/reviews', requireAuth, requirePermission('performance', 'read'), async (req, res) => {
+  const role = req.user!.role;
+  const canAll = role === 'admin' || role === 'hr';
+  let rows;
+  if (canAll) {
+    rows = await query(
+      `SELECT pr.*, e.name AS employee_name, e.position, e.department
+       FROM performance_reviews pr
+       LEFT JOIN employees e ON e.id = pr.employee_id
+       WHERE pr.tenant_id = $1
+       ORDER BY pr.created_at DESC`,
+      [DEFAULT_TENANT],
+    );
+  } else if (role === 'manager') {
+    rows = await query(
+      `SELECT pr.*, e.name AS employee_name, e.position, e.department
+       FROM performance_reviews pr
+       JOIN employees e ON e.id = pr.employee_id
+       WHERE pr.tenant_id = $1 AND (e.user_id = $2 OR e.manager_user_id = $2 OR pr.reviewer_id = $2)
+       ORDER BY pr.created_at DESC`,
+      [DEFAULT_TENANT, req.user!.sub],
+    );
+  } else {
+    rows = await query(
+      `SELECT pr.*, e.name AS employee_name, e.position, e.department
+       FROM performance_reviews pr
+       JOIN employees e ON e.id = pr.employee_id
+       WHERE pr.tenant_id = $1 AND e.user_id = $2
+       ORDER BY pr.created_at DESC`,
+      [DEFAULT_TENANT, req.user!.sub],
+    );
+  }
   res.json({
     reviews: rows.map((r) => ({
       id: r.id,
@@ -325,8 +365,27 @@ performanceRouter.get('/reviews', requireAuth, requirePermission('performance', 
     })),
   });
 });
-performanceRouter.get('/goals', requireAuth, requirePermission('performance', 'read'), async (_req, res) => {
-  const rows = await query('SELECT * FROM goals WHERE tenant_id = $1', [DEFAULT_TENANT]);
+performanceRouter.get('/goals', requireAuth, requirePermission('performance', 'read'), async (req, res) => {
+  const role = req.user!.role;
+  const canAll = role === 'admin' || role === 'hr';
+  let rows;
+  if (canAll) {
+    rows = await query('SELECT * FROM goals WHERE tenant_id = $1', [DEFAULT_TENANT]);
+  } else if (role === 'manager') {
+    rows = await query(
+      `SELECT g.* FROM goals g
+       JOIN employees e ON e.id = g.employee_id
+       WHERE g.tenant_id = $1 AND (e.user_id = $2 OR e.manager_user_id = $2)`,
+      [DEFAULT_TENANT, req.user!.sub],
+    );
+  } else {
+    rows = await query(
+      `SELECT g.* FROM goals g
+       JOIN employees e ON e.id = g.employee_id
+       WHERE g.tenant_id = $1 AND e.user_id = $2`,
+      [DEFAULT_TENANT, req.user!.sub],
+    );
+  }
   res.json({ goals: rows });
 });
 

@@ -34,11 +34,13 @@ export const defaultRolePermissions: Record<Role, PermissionSet> = {
     dashboard: ['read'],
     employees: ['create', 'read', 'update', 'export'],
     attendance: ['create', 'read', 'update', 'approve', 'export'],
+    payroll: ['read'],
     recruitment: ['create', 'read', 'update'],
     performance: ['read'],
     engagement: ['create', 'read'],
     'ai-assistant': ['read'],
     notifications: ['read'],
+    reports: ['read', 'export'],
     settings: ['read'],
   },
   employee: {

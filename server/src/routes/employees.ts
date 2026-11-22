@@ -143,9 +143,15 @@ router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'upda
   ]);
   if (dup) return res.status(409).json({ error: 'Employee with this email already exists' });
 
+  const managerProvided = e.managerUserId !== undefined || e.manager_user_id !== undefined;
+  const managerUserId = managerProvided ? (e.managerUserId ?? e.manager_user_id ?? null) : null;
+  const managerName = e.manager !== undefined ? e.manager : null;
+
   await query(
-    `UPDATE employees SET name=$1, email=$2, phone=$3, department=$4, position=$5, status=$6, salary=$7, location=$8, country=$9, manager=$10,
-       manager_user_id=COALESCE($11, manager_user_id), designation=COALESCE($12, designation), employment_type=COALESCE($13, employment_type)
+    `UPDATE employees SET name=$1, email=$2, phone=$3, department=$4, position=$5, status=$6, salary=$7, location=$8, country=$9,
+       manager=CASE WHEN $16 = 1 THEN $10 ELSE manager END,
+       manager_user_id=CASE WHEN $16 = 1 THEN $11 ELSE manager_user_id END,
+       designation=COALESCE($12, designation), employment_type=COALESCE($13, employment_type)
      WHERE id=$14 AND tenant_id=$15`,
     [
       e.name,
@@ -157,12 +163,13 @@ router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'upda
       e.salary,
       e.location,
       e.country,
-      e.manager,
-      e.managerUserId ?? e.manager_user_id ?? null,
+      managerName,
+      managerUserId,
       e.designation ?? null,
       e.employmentType ?? e.employment_type ?? null,
       req.params.id,
       DEFAULT_TENANT,
+      managerProvided ? 1 : 0,
     ],
   );
   res.json({ ok: true });

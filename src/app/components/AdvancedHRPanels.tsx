@@ -125,7 +125,12 @@ export function ExpenseClaimsPanel() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Receipt</Label>
+              <Label>
+                Receipt
+                {categories.find((c) => String(c.id) === form.categoryId)?.requireReceipt
+                  ? ' (required)'
+                  : ' (optional)'}
+              </Label>
               <Input type="file" accept="image/*,.pdf" onChange={(e) => setReceipt(e.target.files?.[0] ?? null)} />
             </div>
             <div className="space-y-2 sm:col-span-2">

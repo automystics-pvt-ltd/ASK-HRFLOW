@@ -100,24 +100,39 @@ router.post('/generate', requireAuth, requirePermission('employees', 'read'), as
   res.status(201).json({ id, title, html });
 });
 
-router.get('/generated', requireAuth, requirePermission('employees', 'read'), async (req, res) => {
-  const canAll = req.user!.role === 'admin' || req.user!.role === 'hr';
-  const rows = canAll
-    ? await query(
-        `SELECT g.id, g.card_kind, g.title, g.employee_id, g.employee_user_id, g.generated_at, e.name AS employee_name
-         FROM generated_cards g
-         JOIN employees e ON e.id = g.employee_id
-         WHERE g.tenant_id = $1 ORDER BY g.generated_at DESC`,
-        [DEFAULT_TENANT],
-      )
-    : await query(
-        `SELECT g.id, g.card_kind, g.title, g.employee_id, g.employee_user_id, g.generated_at, e.name AS employee_name
-         FROM generated_cards g
-         JOIN employees e ON e.id = g.employee_id
-         WHERE g.tenant_id = $1 AND (g.employee_user_id = $2 OR g.generated_by = $2)
-         ORDER BY g.generated_at DESC`,
-        [DEFAULT_TENANT, req.user!.sub],
-      );
+router.get('/generated', requireAuth, async (req, res) => {
+  // Employees may view their own cards; admin/hr see all; managers see self + reports
+  const role = req.user!.role;
+  const canAll = role === 'admin' || role === 'hr';
+  let rows;
+  if (canAll) {
+    rows = await query(
+      `SELECT g.id, g.card_kind, g.title, g.employee_id, g.employee_user_id, g.generated_at, e.name AS employee_name
+       FROM generated_cards g
+       JOIN employees e ON e.id = g.employee_id
+       WHERE g.tenant_id = $1 ORDER BY g.generated_at DESC`,
+      [DEFAULT_TENANT],
+    );
+  } else if (role === 'manager') {
+    rows = await query(
+      `SELECT g.id, g.card_kind, g.title, g.employee_id, g.employee_user_id, g.generated_at, e.name AS employee_name
+       FROM generated_cards g
+       JOIN employees e ON e.id = g.employee_id
+       WHERE g.tenant_id = $1
+         AND (g.employee_user_id = $2 OR g.generated_by = $2 OR e.manager_user_id = $2)
+       ORDER BY g.generated_at DESC`,
+      [DEFAULT_TENANT, req.user!.sub],
+    );
+  } else {
+    rows = await query(
+      `SELECT g.id, g.card_kind, g.title, g.employee_id, g.employee_user_id, g.generated_at, e.name AS employee_name
+       FROM generated_cards g
+       JOIN employees e ON e.id = g.employee_id
+       WHERE g.tenant_id = $1 AND (g.employee_user_id = $2 OR g.generated_by = $2)
+       ORDER BY g.generated_at DESC`,
+      [DEFAULT_TENANT, req.user!.sub],
+    );
+  }
 
   res.json({
     cards: rows.map((r) => ({

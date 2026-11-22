@@ -23,6 +23,7 @@ import { Search, Plus, Edit, MoreVertical, Mail, MapPin, Users, UserCheck, UserX
 
 export type EmployeeRecord = {
   id: number;
+  userId?: string | null;
   name: string;
   email: string;
   phone?: string;
@@ -35,6 +36,7 @@ export type EmployeeRecord = {
   country: string;
   avatar?: string;
   manager?: string;
+  managerUserId?: string | null;
   skills?: string[];
 };
 
@@ -48,6 +50,7 @@ function mapRow(row: Record<string, unknown>): EmployeeRecord {
   const skills = row.skills;
   return {
     id: Number(row.id),
+    userId: row.user_id != null ? String(row.user_id) : row.userId != null ? String(row.userId) : null,
     name: String(row.name ?? ''),
     email: String(row.email ?? ''),
     phone: row.phone ? String(row.phone) : undefined,
@@ -60,6 +63,12 @@ function mapRow(row: Record<string, unknown>): EmployeeRecord {
     country: String(row.country ?? 'United States'),
     avatar: row.avatar ? String(row.avatar) : undefined,
     manager: row.manager ? String(row.manager) : undefined,
+    managerUserId:
+      row.managerUserId != null
+        ? String(row.managerUserId)
+        : row.manager_user_id != null
+          ? String(row.manager_user_id)
+          : null,
     skills: Array.isArray(skills) ? skills.map(String) : typeof skills === 'string' ? skills.split(',') : [],
   };
 }
@@ -83,6 +92,7 @@ export function EmployeeManagement() {
     joinDate: new Date().toISOString().slice(0, 10),
     location: '',
     country: 'United States',
+    managerUserId: 'none',
   });
   const [addBusy, setAddBusy] = useState(false);
   const [listError, setListError] = useState('');
@@ -97,6 +107,7 @@ export function EmployeeManagement() {
     status: 'Active',
     location: '',
     country: 'United States',
+    managerUserId: 'none',
   });
 
   const reloadEmployees = () =>
@@ -115,6 +126,8 @@ export function EmployeeManagement() {
     void reloadEmployees();
   }, []);
 
+  const managerOptions = employees.filter((e) => e.userId && e.status === 'Active');
+
   const openEdit = (employee: EmployeeRecord) => {
     setSelectedEmployee(employee);
     setEditForm({
@@ -127,6 +140,7 @@ export function EmployeeManagement() {
       status: employee.status,
       location: employee.location,
       country: employee.country,
+      managerUserId: employee.managerUserId || 'none',
     });
   };
 
@@ -136,6 +150,11 @@ export function EmployeeManagement() {
       toast.error('Name, email and position are required.');
       return;
     }
+    if (editForm.managerUserId !== 'none' && editForm.managerUserId === selectedEmployee.userId) {
+      toast.error('An employee cannot be their own manager.');
+      return;
+    }
+    const mgr = managerOptions.find((m) => m.userId === editForm.managerUserId);
     setEditBusy(true);
     try {
       await employeesApi.update(selectedEmployee.id, {
@@ -148,6 +167,8 @@ export function EmployeeManagement() {
         status: editForm.status,
         location: editForm.location.trim() || null,
         country: editForm.country,
+        managerUserId: editForm.managerUserId === 'none' ? null : editForm.managerUserId,
+        manager: mgr?.name ?? null,
       });
       toast.success('Employee updated');
       setSelectedEmployee(null);
@@ -164,6 +185,7 @@ export function EmployeeManagement() {
       toast.error('Name, email and position are required.');
       return;
     }
+    const mgr = managerOptions.find((m) => m.userId === addForm.managerUserId);
     setAddBusy(true);
     try {
       await employeesApi.create({
@@ -177,6 +199,8 @@ export function EmployeeManagement() {
         location: addForm.location.trim() || null,
         country: addForm.country,
         status: 'Active',
+        managerUserId: addForm.managerUserId === 'none' ? null : addForm.managerUserId,
+        manager: mgr?.name ?? null,
       });
       toast.success('Employee created');
       setIsAddEmployeeOpen(false);
@@ -190,6 +214,7 @@ export function EmployeeManagement() {
         joinDate: new Date().toISOString().slice(0, 10),
         location: '',
         country: 'United States',
+        managerUserId: 'none',
       });
       await reloadEmployees();
     } catch (e) {
@@ -336,6 +361,20 @@ export function EmployeeManagement() {
                   <div className="space-y-2"><Label>Start date</Label><Input type="date" value={addForm.joinDate} onChange={(e) => setAddForm({ ...addForm, joinDate: e.target.value })} /></div>
                   <div className="space-y-2"><Label>Location</Label><Input value={addForm.location} onChange={(e) => setAddForm({ ...addForm, location: e.target.value })} placeholder="City" /></div>
                   <div className="space-y-2"><Label>Country</Label><Input value={addForm.country} onChange={(e) => setAddForm({ ...addForm, country: e.target.value })} /></div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Reporting manager</Label>
+                    <Select value={addForm.managerUserId} onValueChange={(v) => setAddForm({ ...addForm, managerUserId: v })}>
+                      <SelectTrigger><SelectValue placeholder="Select manager" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No manager</SelectItem>
+                        {managerOptions.map((m) => (
+                          <SelectItem key={String(m.userId)} value={String(m.userId)}>
+                            {m.name} ({m.position || m.department})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => setIsAddEmployeeOpen(false)}>Cancel</Button>
@@ -496,6 +535,26 @@ export function EmployeeManagement() {
                 </div>
                 <div className="space-y-2"><Label>Location</Label><Input value={editForm.location} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} disabled={!can.canEditEmployee} /></div>
                 <div className="space-y-2"><Label>Country</Label><Input value={editForm.country} onChange={(e) => setEditForm({ ...editForm, country: e.target.value })} disabled={!can.canEditEmployee} /></div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Reporting manager</Label>
+                  <Select
+                    value={editForm.managerUserId}
+                    onValueChange={(v) => setEditForm({ ...editForm, managerUserId: v })}
+                    disabled={!can.canEditEmployee}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Select manager" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No manager</SelectItem>
+                      {managerOptions
+                        .filter((m) => m.userId !== selectedEmployee.userId)
+                        .map((m) => (
+                          <SelectItem key={String(m.userId)} value={String(m.userId)}>
+                            {m.name} ({m.position || m.department})
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setSelectedEmployee(null)}>Close</Button>
