@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Bot, Maximize2, Minimize2, Minus, RotateCcw, Send, Sparkles, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { ScrollArea } from './ui/scroll-area';
-import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { useAccess } from '../lib/access';
 import { aiApi, ApiError } from '../lib/api';
 import { useBranding } from '../lib/branding';
@@ -65,8 +64,14 @@ export function FloatingAIChat({ currentModule }: { currentModule: string }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -139,19 +144,22 @@ export function FloatingAIChat({ currentModule }: { currentModule: string }) {
     setError(null);
   };
 
-  if (!user || !allowed) return null;
+  const openChat = () => setPanel('open');
+
+  if (!user || !allowed || !mounted) return null;
 
   const primary = theme.primary || '#1d6bff';
   const accent = theme.accent || '#3cd0f5';
   const brandName = company.name || 'ASK HRFlow';
 
-  return (
+  const ui = (
     <div
+      id="ask-ai-root"
       className={cn(
-        'fixed z-[60] flex flex-col items-end gap-3',
-        /* Clear mobile bottom nav (~3.5rem) + safe area */
-        'right-4 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] md:right-6 md:bottom-6',
+        'fixed flex flex-col items-end gap-3',
+        'right-4 bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] md:right-6 md:bottom-6',
       )}
+      style={{ zIndex: 9999 }}
     >
       {(panel === 'open' || panel === 'expanded' || panel === 'minimized') && (
         <div
@@ -164,26 +172,32 @@ export function FloatingAIChat({ currentModule }: { currentModule: string }) {
           )}
           role="dialog"
           aria-label="ASK AI assistant"
+          aria-modal="false"
         >
           <header
-            className="flex items-center gap-3 px-3 py-2.5 text-white shrink-0 cursor-pointer"
+            className="flex items-center gap-3 px-3 py-2.5 text-white shrink-0"
             style={{
               backgroundImage: `linear-gradient(120deg, ${primary} 0%, ${accent} 100%)`,
             }}
-            onClick={() => {
-              if (panel === 'minimized') setPanel('open');
-            }}
           >
-            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-              <Sparkles className="w-4 h-4" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium truncate">ASK AI</p>
-              <p className="text-[11px] text-white/80 truncate">
-                {loading ? 'Thinking…' : error ? 'Connection issue' : `${brandName} · ${role}`}
-              </p>
-            </div>
-            <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="flex items-center gap-3 min-w-0 flex-1 text-left"
+              onClick={() => {
+                if (panel === 'minimized') setPanel('open');
+              }}
+            >
+              <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium truncate">ASK AI</p>
+                <p className="text-[11px] text-white/80 truncate">
+                  {loading ? 'Thinking…' : error ? 'Connection issue' : `${brandName} · ${role}`}
+                </p>
+              </div>
+            </button>
+            <div className="flex items-center gap-0.5 shrink-0">
               {panel !== 'minimized' && (
                 <Button
                   type="button"
@@ -235,7 +249,7 @@ export function FloatingAIChat({ currentModule }: { currentModule: string }) {
 
           {panel !== 'minimized' && (
             <>
-              <ScrollArea className="flex-1 min-h-0 px-3 py-3">
+              <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-3">
                 <div className="space-y-3">
                   {messages.map((m) => (
                     <div
@@ -303,7 +317,7 @@ export function FloatingAIChat({ currentModule }: { currentModule: string }) {
                   )}
                   <div ref={bottomRef} />
                 </div>
-              </ScrollArea>
+              </div>
 
               <form
                 className="border-t border-border p-3 flex gap-2 shrink-0 bg-card"
@@ -332,42 +346,46 @@ export function FloatingAIChat({ currentModule }: { currentModule: string }) {
       )}
 
       {panel === 'closed' && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className={cn(
-                'group relative h-14 w-14 rounded-full text-white shadow-[0_12px_32px_-8px_rgba(6,26,82,0.55)]',
-                'flex items-center justify-center transition-transform hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary',
-                'ask-ai-fab',
-              )}
-              style={{
-                backgroundImage: `linear-gradient(135deg, ${primary} 0%, ${accent} 100%)`,
-              }}
-              aria-label="Open ASK AI"
-              onClick={() => setPanel('open')}
-            >
-              <Sparkles className="w-6 h-6 relative z-10" />
-              <span
-                className="absolute -top-9 right-0 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-semibold tracking-wide uppercase px-2 py-1 rounded-md bg-foreground text-background shadow-md whitespace-nowrap pointer-events-none"
-              >
-                ASK AI
-              </span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="left">ASK AI</TooltipContent>
-        </Tooltip>
+        <button
+          type="button"
+          id="ask-ai-fab"
+          title="ASK AI"
+          aria-label="Open ASK AI"
+          className={cn(
+            'ask-ai-fab group relative h-14 w-14 rounded-full text-white',
+            'flex items-center justify-center transition-transform hover:scale-105',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary',
+            'cursor-pointer select-none',
+          )}
+          style={{
+            backgroundImage: `linear-gradient(135deg, ${primary} 0%, ${accent} 100%)`,
+            boxShadow: '0 12px 32px -8px rgba(6,26,82,0.55)',
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            openChat();
+          }}
+        >
+          <Sparkles className="w-6 h-6 pointer-events-none" aria-hidden />
+          <span
+            className="absolute -top-9 right-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-[10px] font-semibold tracking-wide uppercase px-2 py-1 rounded-md bg-foreground text-background shadow-md whitespace-nowrap pointer-events-none"
+          >
+            ASK AI
+          </span>
+        </button>
       )}
 
       <style>{`
-        .ask-ai-fab {
-          animation: ask-ai-pulse 2.8s ease-in-out infinite;
-        }
         @keyframes ask-ai-pulse {
           0%, 100% { box-shadow: 0 12px 32px -8px rgba(6,26,82,0.55), 0 0 0 0 rgba(60,208,245,0.4); }
           50% { box-shadow: 0 12px 32px -8px rgba(6,26,82,0.55), 0 0 0 12px rgba(60,208,245,0); }
         }
+        .ask-ai-fab {
+          animation: ask-ai-pulse 2.8s ease-in-out infinite;
+        }
       `}</style>
     </div>
   );
+
+  return createPortal(ui, document.body);
 }
