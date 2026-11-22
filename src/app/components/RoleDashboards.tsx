@@ -13,9 +13,9 @@ const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good 
 export function WelcomeBanner({ subtitle, chips }: { subtitle: string; chips?: React.ReactNode }) {
   const { user } = useAccess();
   return (
-    <div className="rounded-2xl bg-gradient-to-r from-[#061a52] via-[#0a3a9e] to-[#1d6bff] p-6 text-white">
-      <h1 className="text-2xl mb-1 !text-white">{greeting()}, {user?.name.split(' ')[0]}</h1>
-      <p className="text-white/80">{subtitle}</p>
+    <div className="rounded-2xl bg-gradient-to-r from-[#061a52] via-[#0a3a9e] to-[#1d6bff] p-4 sm:p-6 text-white">
+      <h1 className="text-xl sm:text-2xl mb-1 !text-white">{greeting()}, {user?.name.split(' ')[0]}</h1>
+      <p className="text-white/80 text-sm sm:text-base">{subtitle}</p>
       {chips && <div className="flex flex-wrap gap-2 mt-4">{chips}</div>}
     </div>
   );
@@ -45,12 +45,12 @@ export function EmployeeDashboard({ go }: { go: (t: string) => void }) {
     <div className="space-y-6">
       <WelcomeBanner subtitle="Here is your day at a glance." />
       <Timesheet />
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
         <Stat label="Attendance this month" value="94%" icon={Clock} hint="19 of 20 working days" />
         <Stat label="Timesheet status" value={<Badge variant="secondary">Draft</Badge>} icon={FileCheck2} hint="Week due Friday" />
         <Stat label="Pending tasks" value="3" icon={ClipboardList} hint="1 due today" />
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
         <Card className={card}>
           <CardHeader><CardTitle className="text-base">Leave balance</CardTitle></CardHeader>
           <CardContent className="space-y-4">

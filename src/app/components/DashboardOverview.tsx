@@ -65,11 +65,11 @@ export function DashboardOverview() {
 
   return (
     <div className="space-y-6">
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#061a52] via-[#0a3a9e] to-[#1d6bff] p-6 text-primary-foreground">
-        <div className="relative z-10">
-          <h1 className="text-2xl mb-2 !text-white">Good morning, {user?.name.split(' ')[0]}</h1>
-          <p className="text-primary-foreground/80 mb-4">Here's what's happening with your team today.</p>
-          <div className="flex flex-wrap gap-4">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#061a52] via-[#0a3a9e] to-[#1d6bff] p-4 sm:p-6 text-primary-foreground">
+        <div className="relative z-10 max-w-2xl">
+          <h1 className="text-xl sm:text-2xl mb-2 !text-white">Good morning, {user?.name.split(' ')[0]}</h1>
+          <p className="text-primary-foreground/80 mb-4 text-sm sm:text-base">Here's what's happening with your team today.</p>
+          <div className="flex flex-wrap gap-2 sm:gap-4">
             <Badge variant="secondary" className="bg-white/20 text-primary-foreground border-0">
               <Users className="w-4 h-4 mr-2" />{stats.totalEmployees} Total Employees
             </Badge>
@@ -78,7 +78,7 @@ export function DashboardOverview() {
             </Badge>
           </div>
         </div>
-        <div className="absolute top-0 right-0 w-64 h-32 opacity-20">
+        <div className="pointer-events-none absolute top-0 right-0 hidden sm:block w-48 lg:w-64 h-32 opacity-20">
           <ImageWithFallback
             src="https://images.unsplash.com/photo-1594892342285-9b86df3ad47a?w=1080&q=80"
             alt="Team workspace"
@@ -87,7 +87,7 @@ export function DashboardOverview() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-6">
         {[
           { title: 'Total Employees', value: stats.totalEmployees, sub: `+${stats.newHires} new this month`, icon: Users },
           { title: 'Attendance Rate', value: `${stats.attendanceRate}%`, progress: stats.attendanceRate, icon: Clock },
@@ -108,8 +108,8 @@ export function DashboardOverview() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2 border border-border shadow-[0_8px_24px_-12px_rgba(11,87,240,0.25)] bg-gradient-to-br from-card via-card to-primary/10 rounded-xl">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-6">
+        <Card className="xl:col-span-2 border border-border shadow-[0_8px_24px_-12px_rgba(11,87,240,0.25)] bg-gradient-to-br from-card via-card to-primary/10 rounded-xl">
           <CardHeader><CardTitle className="flex items-center gap-2"><MessageSquare className="w-5 h-5" />Recent Activities</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             {mockData.recentActivities.map((activity) => (
