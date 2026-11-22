@@ -150,6 +150,12 @@ export const auditApi = {
 
 export const payrollApi = {
   runs: () => api<{ runs: Record<string, unknown>[] }>('/api/payroll/runs'),
+  payslips: () => api<{ payslips: Record<string, unknown>[] }>('/api/payroll/payslips'),
+  process: (payload: { periodLabel: string; periodStart: string; periodEnd: string }) =>
+    api<{ id: number; total: number; employeesProcessed: number }>('/api/payroll/runs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 };
 
 export const recruitmentApi = {

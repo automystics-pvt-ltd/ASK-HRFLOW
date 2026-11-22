@@ -33,7 +33,7 @@
 
 - [ ] Access Control role-template UI → `PUT /api/access/permissions/:role` (API exists; UI still partly client-local)
 - [ ] Employee edit dialog → `employeesApi.update`
-- [ ] HR pages (payroll, recruitment, performance) — bind KPI cards to API data
+- [x] HR pages (payroll, recruitment, performance, settings) bound to MySQL APIs / seed data
 - [ ] Timesheet weekly submit/approve UI (check-in uses API; weekly sheets still partial)
 - [ ] Pagination UI for employee list (API supports `page`/`limit`)
 - [ ] Zod validation on all write endpoints

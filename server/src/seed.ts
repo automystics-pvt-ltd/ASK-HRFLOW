@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
-import { pool, query, DEFAULT_TENANT } from './db.js';
+import { pool, query, insert, DEFAULT_TENANT } from './db.js';
 import { defaultRolePermissions, type Role } from './lib/permissions.js';
 
 dotenv.config();
@@ -160,11 +160,78 @@ async function seed() {
     ]);
   }
 
+  await query('DELETE FROM candidates WHERE tenant_id = $1', [DEFAULT_TENANT]);
+  await query('DELETE FROM job_openings WHERE tenant_id = $1', [DEFAULT_TENANT]);
   await query(
     `INSERT INTO job_openings (tenant_id, title, department, location, status, description)
-     VALUES ($1,'Senior Frontend Engineer','Engineering','Remote','open','React + TypeScript')`,
+     VALUES
+     ($1,'Senior Frontend Engineer','Engineering','Remote','open','React + TypeScript'),
+     ($1,'Product Designer','Design','London','open','Figma-heavy product design'),
+     ($1,'Sales Executive','Sales','Dubai','closed','Enterprise SaaS sales')`,
     [DEFAULT_TENANT],
   );
+  const jobs = await query<{ id: number; title: string }>(
+    'SELECT id, title FROM job_openings WHERE tenant_id = $1 ORDER BY id',
+    [DEFAULT_TENANT],
+  );
+  const fe = jobs.find((j) => j.title.includes('Frontend')) ?? jobs[0];
+  const design = jobs.find((j) => j.title.includes('Designer')) ?? jobs[0];
+  if (fe) {
+    await query(
+      `INSERT INTO candidates (tenant_id, job_opening_id, name, email, stage) VALUES
+       ($1,$2,'Aisha Khan','aisha.khan@example.com','interview'),
+       ($1,$2,'Tom Rivera','tom.rivera@example.com','applied'),
+       ($1,$2,'Mei Lin','mei.lin@example.com','offer')`,
+      [DEFAULT_TENANT, fe.id],
+    );
+  }
+  if (design) {
+    await query(
+      `INSERT INTO candidates (tenant_id, job_opening_id, name, email, stage) VALUES
+       ($1,$2,'Jordan Lee','jordan.lee@example.com','applied')`,
+      [DEFAULT_TENANT, design.id],
+    );
+  }
+
+  const empRows = await query<{ id: number; user_id: string | null; salary: string; status: string }>(
+    'SELECT id, user_id, salary, status FROM employees WHERE tenant_id = $1',
+    [DEFAULT_TENANT],
+  );
+  await query('DELETE FROM payslips WHERE tenant_id = $1', [DEFAULT_TENANT]);
+  await query('DELETE FROM payroll_runs WHERE tenant_id = $1', [DEFAULT_TENANT]);
+  const periodStart = `${year}-06-01`;
+  const periodEnd = `${year}-06-30`;
+  const runId = await insert(
+    `INSERT INTO payroll_runs (tenant_id, period_label, period_start, period_end, status, total_amount)
+     VALUES ($1,'Jun payroll',$2,$3,'processed',$4)`,
+    [DEFAULT_TENANT, periodStart, periodEnd, empRows.reduce((s, e) => s + Number(e.salary) / 12, 0)],
+  );
+  for (const e of empRows) {
+    const gross = Number(e.salary) / 12;
+    const net = Math.round(gross * 0.8 * 100) / 100;
+    await query(
+      `INSERT INTO payslips (tenant_id, payroll_run_id, employee_id, net_pay, breakdown)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [DEFAULT_TENANT, runId, e.id, net, JSON.stringify({ gross: Math.round(gross * 100) / 100, deductions: Math.round((gross - net) * 100) / 100 })],
+    );
+  }
+
+  await query('DELETE FROM goals WHERE tenant_id = $1', [DEFAULT_TENANT]);
+  await query('DELETE FROM performance_reviews WHERE tenant_id = $1', [DEFAULT_TENANT]);
+  for (const e of empRows) {
+    await query(
+      `INSERT INTO performance_reviews (tenant_id, employee_id, reviewer_id, period_label, rating, summary, status)
+       VALUES ($1,$2,'u-hr','Q1 ${year}',$3,'Solid delivery this quarter',$4)`,
+      [DEFAULT_TENANT, e.id, e.status === 'On Leave' ? 3.8 : 4.2, e.user_id === 'u-emp3' ? 'pending' : 'completed'],
+    );
+    await query(
+      `INSERT INTO goals (tenant_id, employee_id, title, progress, status) VALUES
+       ($1,$2,'Ship onboarding revamp',70,'active'),
+       ($1,$2,'Complete security certification',45,'active'),
+       ($1,$2,'Mentor two new joiners',90,'active')`,
+      [DEFAULT_TENANT, e.id],
+    );
+  }
 
   console.log('MySQL database seeded successfully.');
   await pool.end();
