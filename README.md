@@ -84,4 +84,8 @@ npm run build
 NODE_ENV=production npm start
 ```
 
-Set strong `JWT_SECRET` and production database credentials in `.env`.
+Set strong `JWT_SECRET` and production database credentials in `.env`. For Hostinger Node.js hosting use `DB_HOST=127.0.0.1` and set env vars via hPanel / Hostinger API (`hosting_nodejs_replace-environment-variables`).
+
+## Hostinger deploy
+
+An active Hostinger Web or Cloud hosting plan is required to provision a site and MySQL database. This account currently has no active hosting order — purchase a plan at https://www.hostinger.com/web-hosting, then ask to deploy again (free `*.hostingersite.com` subdomain + MySQL + Node.js deploy).

@@ -41,7 +41,7 @@ export function LoginScreen() {
       <div className="hidden lg:flex flex-col justify-between p-12 bg-gradient-to-br from-[#061a52] via-[#0a2a7a] to-[#1d6bff] text-white">
         <CompanyLogo onDark className="w-72" />
         <div className="space-y-4 max-w-md">
-          <h1 className="text-4xl font-extrabold tracking-tight">ASK HRFlow</h1>
+          <h1 className="text-4xl font-extrabold tracking-tight !text-white">ASK HRFlow</h1>
           <p className="text-[#c7d6ff] text-lg">One workspace for people operations: attendance, leave, payroll, hiring and performance, with access tailored to every role.</p>
           <ul className="space-y-2 text-sm text-[#c7d6ff]">
             {['Role-based access with a full permission matrix', 'Location-verified attendance and locked timesheets', 'Complete audit trail of every access change'].map((t) => (
