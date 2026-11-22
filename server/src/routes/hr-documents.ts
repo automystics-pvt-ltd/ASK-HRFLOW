@@ -198,7 +198,17 @@ router.get('/templates/:id', requireAuth, requirePermission('settings', 'read'),
   res.json({ template: mapTemplate(row as Record<string, unknown>) });
 });
 
-router.post('/templates', requireAuth, requirePermission('settings', 'update'), async (req, res) => {
+async function canManageTemplates(userId: string, role: string) {
+  return (
+    (await userCan(userId, role, 'settings', 'update')) ||
+    (await userCan(userId, role, 'employees', 'update'))
+  );
+}
+
+router.post('/templates', requireAuth, async (req, res) => {
+  if (!(await canManageTemplates(req.user!.sub, req.user!.role))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const { docType, name, description, bodyHtml, mandatoryFields, headerHtml, footerHtml, signatoryName, signatoryTitle } =
     req.body || {};
   if (!docType || !name || !bodyHtml) return res.status(400).json({ error: 'docType, name, bodyHtml required' });
@@ -226,7 +236,10 @@ router.post('/templates', requireAuth, requirePermission('settings', 'update'), 
   res.status(201).json({ id });
 });
 
-router.put('/templates/:id', requireAuth, requirePermission('settings', 'update'), async (req, res) => {
+router.put('/templates/:id', requireAuth, async (req, res) => {
+  if (!(await canManageTemplates(req.user!.sub, req.user!.role))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const row = await queryOne('SELECT * FROM document_templates WHERE id = $1 AND tenant_id = $2', [
     req.params.id,
     DEFAULT_TENANT,
@@ -260,7 +273,10 @@ router.put('/templates/:id', requireAuth, requirePermission('settings', 'update'
   res.json({ ok: true });
 });
 
-router.post('/templates/:id/activate', requireAuth, requirePermission('settings', 'update'), async (req, res) => {
+router.post('/templates/:id/activate', requireAuth, async (req, res) => {
+  if (!(await canManageTemplates(req.user!.sub, req.user!.role))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const active = req.body?.active === false ? 0 : 1;
   const result = await query('UPDATE document_templates SET active = $1 WHERE id = $2 AND tenant_id = $3', [
     active,

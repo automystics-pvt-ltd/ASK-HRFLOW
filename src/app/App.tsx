@@ -58,7 +58,7 @@ function Workspace() {
       case 'notifications': return <NotificationsPage />;
       case 'access': return <AccessControl />;
       case 'audit': return <AuditLogs />;
-      case 'settings': return <SettingsPage />;
+      case 'settings': return <SettingsPage onNavigate={setActiveTab} />;
       default:
         return role === 'admin' ? (
           <DashboardOverview go={setActiveTab} />

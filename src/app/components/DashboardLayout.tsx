@@ -3,7 +3,6 @@ import { Button } from './ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from './ui/sheet';
 import { Switch } from './ui/switch';
-import { toast } from 'sonner';
 import { useAccess, roleLabels } from '../lib/access';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { BrandLockup } from './Brand';
@@ -19,7 +18,6 @@ import {
   Settings,
   Award,
   Bell,
-  Search,
   Menu,
   Moon,
   Sun,
@@ -28,6 +26,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import { FloatingAIChat } from './FloatingAIChat';
+import { GlobalSearchBar } from './GlobalSearchBar';
 
 interface DashboardLayoutProps {
   activeTab: string;
@@ -127,7 +126,6 @@ export function DashboardLayout({ activeTab, setActiveTab, isDarkMode, toggleDar
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { user, role, can, unread, logout } = useAccess();
   const { theme } = useBranding();
-  const [query, setQuery] = useState('');
   const visibleItems = menuItems.filter((m) => can(m.id, 'read'));
   const bottomItems = visibleItems
     .filter((m) => ['dashboard', 'employees', 'attendance', 'payroll', 'performance', 'settings'].includes(m.id))
@@ -200,28 +198,22 @@ export function DashboardLayout({ activeTab, setActiveTab, isDarkMode, toggleDar
             </h1>
 
             <div className="flex-1 min-w-0 hidden sm:flex justify-center px-2">
-              <div className="flex items-center gap-2 bg-accent/50 rounded-lg px-3 py-2 w-full max-w-md">
-                <Search className="w-4 h-4 text-muted-foreground shrink-0" />
-                <input
-                  type="text"
-                  aria-label="Global search"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key !== 'Enter' || !query.trim()) return;
-                    if (!can('employees', 'read')) {
-                      toast.info('Search is limited to modules you can access.');
-                      return;
-                    }
-                    sessionStorage.setItem('global-search', query.trim());
-                    window.dispatchEvent(new CustomEvent('global-search', { detail: query.trim() }));
-                    setActiveTab('employees');
-                    setQuery('');
-                  }}
-                  placeholder={can('employees', 'read') ? 'Search employees (Enter)…' : 'Search…'}
-                  className="bg-transparent border-none outline-none text-sm flex-1 min-w-0"
-                />
-              </div>
+              <GlobalSearchBar
+                onNavigate={(tab, meta) => {
+                  if (meta?.employeeId || meta?.department || meta?.position) {
+                    sessionStorage.setItem(
+                      'global-search',
+                      meta.department || meta.position || '',
+                    );
+                    window.dispatchEvent(
+                      new CustomEvent('global-search', {
+                        detail: meta.department || meta.position || '',
+                      }),
+                    );
+                  }
+                  setActiveTab(tab);
+                }}
+              />
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 ml-auto">
@@ -277,30 +269,21 @@ export function DashboardLayout({ activeTab, setActiveTab, isDarkMode, toggleDar
             </div>
           </div>
 
-          {/* Mobile search row */}
           <div className="sm:hidden mt-2">
-            <div className="flex items-center gap-2 bg-accent/50 rounded-lg px-3 py-2">
-              <Search className="w-4 h-4 text-muted-foreground shrink-0" />
-              <input
-                type="text"
-                aria-label="Global search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key !== 'Enter' || !query.trim()) return;
-                  if (!can('employees', 'read')) {
-                    toast.info('Search is limited to modules you can access.');
-                    return;
-                  }
-                  sessionStorage.setItem('global-search', query.trim());
-                  window.dispatchEvent(new CustomEvent('global-search', { detail: query.trim() }));
-                  setActiveTab('employees');
-                  setQuery('');
-                }}
-                placeholder={can('employees', 'read') ? 'Search…' : 'Search…'}
-                className="bg-transparent border-none outline-none text-sm flex-1 min-w-0"
-              />
-            </div>
+            <GlobalSearchBar
+              compact
+              onNavigate={(tab, meta) => {
+                if (meta?.department || meta?.position) {
+                  sessionStorage.setItem('global-search', meta.department || meta.position || '');
+                  window.dispatchEvent(
+                    new CustomEvent('global-search', {
+                      detail: meta.department || meta.position || '',
+                    }),
+                  );
+                }
+                setActiveTab(tab);
+              }}
+            />
           </div>
         </header>
 

@@ -2,9 +2,17 @@ import { Router } from 'express';
 import { DEFAULT_TENANT, insert, query, queryOne } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
+import { userCan } from '../lib/users.js';
 import { isoDate } from '../lib/dates.js';
 
 const router = Router();
+
+async function canManageHolidays(userId: string, role: string) {
+  return (
+    (await userCan(userId, role, 'settings', 'update')) ||
+    (await userCan(userId, role, 'attendance', 'update'))
+  );
+}
 
 function mapHoliday(r: Record<string, unknown>) {
   return {
@@ -33,7 +41,10 @@ router.get('/', requireAuth, requirePermission('attendance', 'read'), async (req
   res.json({ holidays: rows.map((r) => mapHoliday(r as Record<string, unknown>)) });
 });
 
-router.post('/', requireAuth, requirePermission('settings', 'update'), async (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
+  if (!(await canManageHolidays(req.user!.sub, req.user!.role))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const { name, holidayDate, kind, location, employeeGroup, active } = req.body || {};
   if (!name || !holidayDate) return res.status(400).json({ error: 'name and holidayDate required' });
   const id = await insert(
@@ -52,7 +63,10 @@ router.post('/', requireAuth, requirePermission('settings', 'update'), async (re
   res.status(201).json({ id });
 });
 
-router.put('/:id', requireAuth, requirePermission('settings', 'update'), async (req, res) => {
+router.put('/:id', requireAuth, async (req, res) => {
+  if (!(await canManageHolidays(req.user!.sub, req.user!.role))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const row = await queryOne('SELECT id FROM holidays WHERE id = $1 AND tenant_id = $2', [
     req.params.id,
     DEFAULT_TENANT,
@@ -81,7 +95,10 @@ router.put('/:id', requireAuth, requirePermission('settings', 'update'), async (
   res.json({ ok: true });
 });
 
-router.delete('/:id', requireAuth, requirePermission('settings', 'update'), async (req, res) => {
+router.delete('/:id', requireAuth, async (req, res) => {
+  if (!(await canManageHolidays(req.user!.sub, req.user!.role))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   await query('DELETE FROM holidays WHERE id = $1 AND tenant_id = $2', [req.params.id, DEFAULT_TENANT]);
   res.json({ ok: true });
 });

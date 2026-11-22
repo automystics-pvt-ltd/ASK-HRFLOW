@@ -406,6 +406,25 @@ export const settingsApi = {
     api<{ ok: boolean }>(`/api/settings/${key}`, { method: 'PUT', body: JSON.stringify({ value }) }),
 };
 
+export type UserPreferences = {
+  emailNotifications: boolean;
+  inAppNotifications: boolean;
+  leaveUpdates: boolean;
+  approvalReminders: boolean;
+  payrollAlerts: boolean;
+  weeklyDigest: boolean;
+  quietHours: boolean;
+};
+
+export const preferencesApi = {
+  get: () => api<{ preferences: UserPreferences }>('/api/preferences'),
+  update: (preferences: Partial<UserPreferences>) =>
+    api<{ ok: boolean; preferences: UserPreferences }>('/api/preferences', {
+      method: 'PUT',
+      body: JSON.stringify({ preferences }),
+    }),
+};
+
 export const reportsApi = {
   summary: () => api<{ report: Record<string, number> }>('/api/reports/summary'),
 };
@@ -497,6 +516,124 @@ export const aiApi = {
       method: 'POST',
       body: JSON.stringify({ message, context }),
     }),
+  chatStream: async (
+    message: string,
+    context: { module?: string } | undefined,
+    handlers: {
+      onToken: (text: string) => void;
+      onDone: (meta: { suggestions: string[]; role: string; module: string | null }) => void;
+      onError: (message: string) => void;
+      onStatus?: (state: string) => void;
+    },
+  ) => {
+    const res = await fetch('/api/ai/chat/stream', {
+      method: 'POST',
+      credentials: 'include',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ message, context }),
+    });
+    if (!res.ok || !res.body) {
+      const body = await res.text();
+      throw new ApiError(body || res.statusText || 'Stream failed', res.status);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() ?? '';
+      for (const block of parts) {
+        const lines = block.split('\n');
+        let event = 'message';
+        let data = '';
+        for (const line of lines) {
+          if (line.startsWith('event:')) event = line.slice(6).trim();
+          if (line.startsWith('data:')) data += line.slice(5).trim();
+        }
+        if (!data) continue;
+        try {
+          const parsed = JSON.parse(data) as Record<string, unknown>;
+          if (event === 'token' && typeof parsed.text === 'string') handlers.onToken(parsed.text);
+          else if (event === 'status' && typeof parsed.state === 'string') handlers.onStatus?.(parsed.state);
+          else if (event === 'done') {
+            handlers.onDone({
+              suggestions: (parsed.suggestions as string[]) ?? [],
+              role: String(parsed.role ?? ''),
+              module: (parsed.module as string | null) ?? null,
+            });
+          } else if (event === 'error') {
+            handlers.onError(String(parsed.message ?? 'Stream error'));
+          }
+        } catch {
+          /* ignore malformed chunk */
+        }
+      }
+    }
+  },
+};
+
+export const locationsApi = {
+  countries: () => api<{ countries: Record<string, unknown>[] }>('/api/locations/countries'),
+  states: (params?: { countryId?: number; countryCode?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.countryId) q.set('countryId', String(params.countryId));
+    if (params?.countryCode) q.set('countryCode', params.countryCode);
+    return api<{ states: Record<string, unknown>[] }>(`/api/locations/states?${q}`);
+  },
+  districts: (params?: { stateId?: number; stateCode?: string; countryCode?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.stateId) q.set('stateId', String(params.stateId));
+    if (params?.stateCode) q.set('stateCode', params.stateCode);
+    if (params?.countryCode) q.set('countryCode', params.countryCode);
+    return api<{ districts: Record<string, unknown>[] }>(`/api/locations/districts?${q}`);
+  },
+  cities: (params?: { stateId?: number; districtId?: number; q?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.stateId) q.set('stateId', String(params.stateId));
+    if (params?.districtId) q.set('districtId', String(params.districtId));
+    if (params?.q) q.set('q', params.q);
+    return api<{ cities: Record<string, unknown>[] }>(`/api/locations/cities?${q}`);
+  },
+  cascade: (params: { country?: string; state?: string; district?: string }) => {
+    const q = new URLSearchParams(params as Record<string, string>);
+    return api<{
+      countries: Record<string, unknown>[];
+      states: Record<string, unknown>[];
+      districts: Record<string, unknown>[];
+      cities: Record<string, unknown>[];
+    }>(`/api/locations/cascade?${q}`);
+  },
+  seed: () => api<{ ok: boolean; tnDistricts: number; tnCities: number }>('/api/locations/seed', { method: 'POST', body: '{}' }),
+  summary: () =>
+    api<{ tamilNadu: { districts: number; cities: number } }>('/api/locations/admin/summary'),
+  createDistrict: (payload: { stateId: number; name: string; code?: string }) =>
+    api<{ id: number }>('/api/locations/districts', { method: 'POST', body: JSON.stringify(payload) }),
+  createCity: (payload: { stateId: number; districtId?: number | null; name: string }) =>
+    api<{ id: number }>('/api/locations/cities', { method: 'POST', body: JSON.stringify(payload) }),
+  patchDistrict: (id: number, payload: { name?: string; active?: boolean }) =>
+    api<{ ok: boolean }>(`/api/locations/districts/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  patchCity: (id: number, payload: { name?: string; active?: boolean }) =>
+    api<{ ok: boolean }>(`/api/locations/cities/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+};
+
+export const searchApi = {
+  query: (q: string) =>
+    api<{
+      q: string;
+      results: Array<{
+        id: string;
+        category: string;
+        title: string;
+        subtitle?: string;
+        module: string;
+        navigateTo: string;
+        meta?: Record<string, string>;
+      }>;
+      groups: Record<string, Array<{ id: string; category: string; title: string; subtitle?: string; navigateTo: string }>>;
+    }>(`/api/search?q=${encodeURIComponent(q)}`),
 };
 
 export const leaveTypesApi = {

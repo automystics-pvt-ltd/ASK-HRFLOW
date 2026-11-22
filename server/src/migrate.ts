@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { pool, query } from './db.js';
+import { seedLocationMaster } from './lib/location-seed.js';
 
 dotenv.config();
 
@@ -97,6 +98,7 @@ async function ensureAuthColumns() {
 
 async function ensureEmployeeLocationColumns() {
   await ensureColumn('employees', 'state', 'VARCHAR(120) NULL');
+  await ensureColumn('employees', 'district', 'VARCHAR(120) NULL');
 }
 
 async function main() {
@@ -146,6 +148,22 @@ async function main() {
     await ensureManagerRoleEnums();
   } catch (e) {
     console.warn('Manager ENUM ensure skipped:', e instanceof Error ? e.message : e);
+  }
+  if (done.has('007_location_master') || true) {
+    try {
+      const table = await query<{ ok: number }>(
+        `SELECT 1 AS ok FROM information_schema.TABLES
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'geo_countries' LIMIT 1`,
+      );
+      if (table.length) {
+        const seeded = await seedLocationMaster();
+        console.log(
+          `Location master seed: countries=${seeded.countries} TN districts=${seeded.tnDistricts} TN cities≈${seeded.tnCities}`,
+        );
+      }
+    } catch (e) {
+      console.warn('Location seed skipped:', e instanceof Error ? e.message : e);
+    }
   }
   await pool.end();
 }

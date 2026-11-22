@@ -181,15 +181,11 @@ ${role === 'employee' ? '' : '• Team leave and pending approvals (within your 
 I will never reveal unauthorized salary or confidential employee data.`;
 }
 
-router.post('/chat', requireAuth, attachUser, requirePermission('ai-assistant', 'read'), async (req, res) => {
-  const me = await ensureAppUser(req);
-  if (!me) return res.status(401).json({ error: 'Unauthorized' });
-
-  const message = String(req.body?.message || '').trim();
-  const ctx = (req.body?.context || {}) as ChatCtx;
-  if (!message) return res.status(400).json({ error: 'Message is required.' });
-  if (message.length > 2000) return res.status(400).json({ error: 'Message is too long.' });
-
+async function buildChatReply(
+  me: { id: string; role: string; permissions?: Record<string, string[]> },
+  message: string,
+  ctx: ChatCtx,
+): Promise<{ reply: string; suggestions: string[] }> {
   const lower = message.toLowerCase();
   const perms = me.permissions ?? {};
   const canEmployees = hasAction(perms, 'employees', 'read');
@@ -199,66 +195,118 @@ router.post('/chat', requireAuth, attachUser, requirePermission('ai-assistant', 
   let reply = '';
   let suggestions = suggestionsFor(me.role);
 
-  try {
-    if (/leave balance|my leave|vacation|pto|remaining leave/.test(lower)) {
-      reply = await leaveBalanceText(me.id);
-      suggestions = ['How do I request leave?', 'Upcoming holidays', 'My attendance'];
-    } else if (/holiday|public holiday|office closed/.test(lower)) {
-      reply = await holidaysText();
-    } else if (/attendance|check[- ]?in|hours worked|present/.test(lower) && !/team/.test(lower)) {
-      reply = await attendanceText(me.id);
-      suggestions = ['My leave balance', 'How do timesheets work?', 'Upcoming holidays'];
-    } else if (/pending approval|approvals? waiting|what needs approval/.test(lower)) {
-      reply = await pendingApprovalsText(me.id, me.role);
-    } else if (/team leave|leave overview|who is on leave/.test(lower)) {
-      reply = await teamLeaveText(me.id, me.role);
-    } else if (/payroll|payslip|salary|next pay/.test(lower)) {
-      if (!canPayroll) {
-        reply = 'You do not have payroll access. Contact HR if you need a payslip.';
-      } else if (me.role === 'employee' || (!canSalary && me.role !== 'admin' && me.role !== 'hr')) {
-        reply =
-          'Payroll self-service: open Payroll to view your payslips when available.\n• Pay runs and salary structures are managed by Admin/HR.\n• I will not disclose other employees’ compensation.\n\nTip: use the Payroll module in the side navigation.';
-      } else {
-        reply =
-          'Payroll guidance (Admin/HR):\n• Configure salary structures and statutory rates under Payroll.\n• Process a pay run from Payroll → Process.\n• HR has read access; updates require Admin.\n• Employees only see their own payslips.\n\nI will not list other employees’ salaries in chat.';
-      }
-      suggestions = ['Pending approvals', 'My leave balance', 'How do I navigate Settings?'];
-    } else if (/find |contact |directory|who is |employee info/.test(lower)) {
-      reply = await employeeLookupText(message, me.id, me.role, canEmployees, canSalary);
-    } else if (/request leave|apply leave|how (do|to).*(leave|timesheet|claim|payroll|navigate)/.test(lower)) {
-      if (/leave/.test(lower)) {
-        reply =
-          'To request leave:\n1. Open Attendance\n2. Choose Request Leave\n3. Pick dates (policy-aware day count)\n4. Submit — your manager/HR must approve with a comment\n\nTip: ask “What is my leave balance?” for remaining days.';
-      } else if (/timesheet/.test(lower)) {
-        reply =
-          'Timesheets: open Attendance → Timesheets, create/add hours for the week, then Submit. Locked timesheets need manager/HR review.';
-      } else if (/claim|expense/.test(lower)) {
-        reply =
-          'Expense claims: open Attendance or Claims panels (where available), submit category + amount + receipt. Claims never auto-approve and require reviewer comments.';
-      } else if (/payroll/.test(lower)) {
-        reply = canPayroll
-          ? 'Open Payroll from the side menu for payslips or (Admin) pay runs and structures.'
-          : 'You do not have Payroll module access.';
-      } else {
-        reply = helpText(me.role, ctx.module);
-      }
-    } else if (/policy|remote work|help|what can you|capabilities/.test(lower)) {
+  if (/leave balance|my leave|vacation|pto|remaining leave/.test(lower)) {
+    reply = await leaveBalanceText(me.id);
+    suggestions = ['How do I request leave?', 'Upcoming holidays', 'My attendance'];
+  } else if (/holiday|public holiday|office closed/.test(lower)) {
+    reply = await holidaysText();
+  } else if (/attendance|check[- ]?in|hours worked|present/.test(lower) && !/team/.test(lower)) {
+    reply = await attendanceText(me.id);
+    suggestions = ['My leave balance', 'How do timesheets work?', 'Upcoming holidays'];
+  } else if (/pending approval|approvals? waiting|what needs approval/.test(lower)) {
+    reply = await pendingApprovalsText(me.id, me.role);
+  } else if (/team leave|leave overview|who is on leave/.test(lower)) {
+    reply = await teamLeaveText(me.id, me.role);
+  } else if (/payroll|payslip|salary|next pay/.test(lower)) {
+    if (!canPayroll) {
+      reply = 'You do not have payroll access. Contact HR if you need a payslip.';
+    } else if (me.role === 'employee' || (!canSalary && me.role !== 'admin' && me.role !== 'hr')) {
       reply =
-        `${helpText(me.role, ctx.module)}\n\nFor full written policies, check Settings / HR documents when your role allows access.`;
+        'Payroll self-service: open Payroll to view your payslips when available.\n• Pay runs and salary structures are managed by Admin/HR.\n• I will not disclose other employees’ compensation.\n\nTip: use the Payroll module in the side navigation.';
+    } else {
+      reply =
+        'Payroll guidance (Admin/HR):\n• Configure salary structures and statutory rates under Payroll.\n• Process a pay run from Payroll → Process.\n• HR has read access; updates require Admin.\n• Employees only see their own payslips.\n\nI will not list other employees’ salaries in chat.';
+    }
+    suggestions = ['Pending approvals', 'My leave balance', 'How do I navigate Settings?'];
+  } else if (/find |contact |directory|who is |employee info/.test(lower)) {
+    reply = await employeeLookupText(message, me.id, me.role, canEmployees, canSalary);
+  } else if (/request leave|apply leave|how (do|to).*(leave|timesheet|claim|payroll|navigate)/.test(lower)) {
+    if (/leave/.test(lower)) {
+      reply =
+        'To request leave:\n1. Open Attendance\n2. Choose Request Leave\n3. Pick dates (policy-aware day count)\n4. Submit — your manager/HR must approve with a comment\n\nTip: ask “What is my leave balance?” for remaining days.';
+    } else if (/timesheet/.test(lower)) {
+      reply =
+        'Timesheets: open Attendance → Timesheets, create/add hours for the week, then Submit. Locked timesheets need manager/HR review.';
+    } else if (/claim|expense/.test(lower)) {
+      reply =
+        'Expense claims: open Attendance or Claims panels (where available), submit category + amount + receipt. Claims never auto-approve and require reviewer comments.';
+    } else if (/payroll/.test(lower)) {
+      reply = canPayroll
+        ? 'Open Payroll from the side menu for payslips or (Admin) pay runs and structures.'
+        : 'You do not have Payroll module access.';
     } else {
       reply = helpText(me.role, ctx.module);
     }
-  } catch (e) {
-    console.error('[ai/chat]', e);
-    reply = 'I hit a temporary issue loading that data. Please try again, or open the related module directly.';
+  } else if (/policy|remote work|help|what can you|capabilities/.test(lower)) {
+    reply = `${helpText(me.role, ctx.module)}\n\nFor full written policies, check Settings / HR documents when your role allows access.`;
+  } else {
+    reply = helpText(me.role, ctx.module);
   }
 
-  res.json({
-    reply,
-    suggestions,
-    role: me.role,
-    module: ctx.module ?? null,
-  });
+  return { reply, suggestions };
+}
+
+router.post('/chat', requireAuth, attachUser, requirePermission('ai-assistant', 'read'), async (req, res) => {
+  const me = await ensureAppUser(req);
+  if (!me) return res.status(401).json({ error: 'Unauthorized' });
+
+  const message = String(req.body?.message || '').trim();
+  const ctx = (req.body?.context || {}) as ChatCtx;
+  if (!message) return res.status(400).json({ error: 'Message is required.' });
+  if (message.length > 2000) return res.status(400).json({ error: 'Message is too long.' });
+
+  try {
+    const { reply, suggestions } = await buildChatReply(me, message, ctx);
+    res.json({
+      reply,
+      suggestions,
+      role: me.role,
+      module: ctx.module ?? null,
+    });
+  } catch (e) {
+    console.error('[ai/chat]', e);
+    res.json({
+      reply: 'I hit a temporary issue loading that data. Please try again, or open the related module directly.',
+      suggestions: suggestionsFor(me.role),
+      role: me.role,
+      module: ctx.module ?? null,
+    });
+  }
+});
+
+/** SSE stream of the authorized reply (chunked for real-time UX). */
+router.post('/chat/stream', requireAuth, attachUser, requirePermission('ai-assistant', 'read'), async (req, res) => {
+  const me = await ensureAppUser(req);
+  if (!me) return res.status(401).json({ error: 'Unauthorized' });
+
+  const message = String(req.body?.message || '').trim();
+  const ctx = (req.body?.context || {}) as ChatCtx;
+  if (!message) return res.status(400).json({ error: 'Message is required.' });
+  if (message.length > 2000) return res.status(400).json({ error: 'Message is too long.' });
+
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const send = (event: string, data: unknown) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    send('status', { state: 'thinking' });
+    const { reply, suggestions } = await buildChatReply(me, message, ctx);
+    const chunks = reply.match(/[\s\S]{1,24}/g) ?? [reply];
+    for (const chunk of chunks) {
+      send('token', { text: chunk });
+      await new Promise((r) => setTimeout(r, 12));
+    }
+    send('done', { suggestions, role: me.role, module: ctx.module ?? null });
+  } catch (e) {
+    console.error('[ai/chat/stream]', e);
+    send('error', { message: 'Temporary issue loading that data.' });
+  }
+  res.end();
 });
 
 export default router;
