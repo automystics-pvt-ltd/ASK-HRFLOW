@@ -148,22 +148,6 @@ export function FloatingAIChat({ currentModule }: { currentModule: string }) {
     setPanel((p) => (p === 'closed' || p === 'minimized' ? 'open' : 'closed'));
   }, []);
 
-  const fabRef = useRef<HTMLButtonElement>(null);
-
-  // Prefer a single native listener (no React onClick) so automation and overlays cannot
-  // double-fire and immediately re-close the panel.
-  useEffect(() => {
-    const el = fabRef.current;
-    if (!el) return;
-    const onActivate = (ev: Event) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      toggleChat();
-    };
-    el.addEventListener('click', onActivate);
-    return () => el.removeEventListener('click', onActivate);
-  }, [toggleChat]);
-
   if (!user || !allowed || !mounted) return null;
 
   const primary = theme.primary || '#1d6bff';
@@ -366,7 +350,6 @@ export function FloatingAIChat({ currentModule }: { currentModule: string }) {
       )}
 
       <button
-        ref={fabRef}
         type="button"
         id="ask-ai-fab"
         title={fabOpen ? 'Close ASK AI' : 'ASK AI'}
@@ -383,6 +366,11 @@ export function FloatingAIChat({ currentModule }: { currentModule: string }) {
           backgroundImage: `linear-gradient(135deg, ${primary} 0%, ${accent} 100%)`,
           boxShadow: '0 12px 32px -8px rgba(6,26,82,0.55)',
           pointerEvents: 'auto',
+        }}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleChat();
         }}
       >
         {fabOpen ? (
