@@ -245,10 +245,16 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
   const setRoleTemplate: Ctx['setRoleTemplate'] = (role, module, action, on) => {
     if (user?.role !== 'admin') return 'Only an Admin can edit role templates.';
     if (role === 'admin') return 'Admin permissions are fixed.';
+    let nextTemplate: PermissionSet | null = null;
     setRoleTemplates((r) => {
-      const set = new Set(r[role][module] ?? []); on ? set.add(action) : set.delete(action);
-      return { ...r, [role]: { ...r[role], [module]: actions.filter((a) => set.has(a)) } };
+      const set = new Set(r[role][module] ?? []);
+      on ? set.add(action) : set.delete(action);
+      nextTemplate = { ...r[role], [module]: actions.filter((a) => set.has(a)) };
+      return { ...r, [role]: nextTemplate };
     });
+    if (nextTemplate) {
+      void accessApi.updateRoleTemplate(role, nextTemplate).catch(() => {});
+    }
     log('Role template changed', `${on ? 'Granted' : 'Revoked'} ${action.toUpperCase()} on ${moduleLabel(module)} for role ${roleLabels[role].label}`);
     return null;
   };

@@ -8,6 +8,7 @@ import {
   performanceApi,
   settingsApi,
   noticesApi,
+  documentsApi,
 } from './lib/api';
 import { toast } from 'sonner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
@@ -16,6 +17,8 @@ import { useAccess } from './lib/access';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Badge } from './components/ui/badge';
 import { Button } from './components/ui/button';
+import { Input } from './components/ui/input';
+import { Label } from './components/ui/label';
 import { Progress } from './components/ui/progress';
 import {
   DollarSign,
@@ -33,6 +36,8 @@ import {
   Settings,
   CheckCircle,
   AlertTriangle,
+  Upload,
+  Loader2,
 } from 'lucide-react';
 
 function PayrollCurrencyAdmin() {
@@ -466,9 +471,33 @@ export function EmployeeEngagement() {
   );
 }
 
+type DocRow = { id: string; title: string; category: string; mimeType: string; createdAt: string };
+
 export function SettingsPage() {
   const { can, role } = useRole();
+  const acc = useAccess();
   const [company, setCompany] = useState<{ name?: string; timezone?: string; currency?: string }>({});
+  const [documents, setDocuments] = useState<DocRow[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [docTitle, setDocTitle] = useState('');
+
+  const loadDocuments = () => {
+    if (!acc.can('employees', 'read')) return;
+    documentsApi
+      .list()
+      .then(({ documents: rows }) =>
+        setDocuments(
+          (rows ?? []).map((r) => ({
+            id: String(r.id),
+            title: String(r.title ?? 'Untitled'),
+            category: String(r.category ?? 'general'),
+            mimeType: String(r.mime_type ?? r.mimeType ?? ''),
+            createdAt: String(r.created_at ?? r.createdAt ?? ''),
+          })),
+        ),
+      )
+      .catch(() => {});
+  };
 
   useEffect(() => {
     settingsApi
@@ -478,7 +507,27 @@ export function SettingsPage() {
         if (c && typeof c === 'object') setCompany(c as { name?: string; timezone?: string; currency?: string });
       })
       .catch(() => {});
+    loadDocuments();
   }, []);
+
+  const onUpload = async (file: File | null) => {
+    if (!file) return;
+    if (!acc.can('employees', 'create')) {
+      toast.error('You do not have permission to upload documents');
+      return;
+    }
+    setUploading(true);
+    try {
+      await documentsApi.upload(file, { title: docTitle.trim() || file.name, category: 'general' });
+      toast.success('Document uploaded');
+      setDocTitle('');
+      loadDocuments();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -530,6 +579,67 @@ export function SettingsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {acc.can('employees', 'read') && (
+        <Card className="border border-border rounded-xl">
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              Documents
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {acc.can('employees', 'create') && (
+              <div className="flex flex-col sm:flex-row gap-3 items-end">
+                <div className="space-y-1.5 flex-1 w-full">
+                  <Label htmlFor="doc-title">Title (optional)</Label>
+                  <Input
+                    id="doc-title"
+                    value={docTitle}
+                    onChange={(e) => setDocTitle(e.target.value)}
+                    placeholder="Document title"
+                  />
+                </div>
+                <div className="space-y-1.5 w-full sm:w-auto">
+                  <Label htmlFor="doc-file">File</Label>
+                  <Input
+                    id="doc-file"
+                    type="file"
+                    disabled={uploading}
+                    onChange={(e) => void onUpload(e.target.files?.[0] ?? null)}
+                  />
+                </div>
+                {uploading && (
+                  <Button disabled className="gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Uploading…
+                  </Button>
+                )}
+              </div>
+            )}
+            {documents.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No documents uploaded yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {documents.map((d) => (
+                  <div key={d.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-border/50">
+                    <div className="min-w-0 flex items-center gap-2">
+                      <Upload className="w-4 h-4 text-muted-foreground shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{d.title}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {d.category}
+                          {d.createdAt ? ` · ${new Date(d.createdAt).toLocaleDateString()}` : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <Badge variant="secondary">{d.mimeType || 'file'}</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
