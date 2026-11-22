@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 48" role="img" aria-label="Automystics">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b57f0"/>
+      <stop offset="100%" stop-color="#1d6bff"/>
+    </linearGradient>
+  </defs>
+  <circle cx="22" cy="24" r="14" fill="url(#g)"/>
+  <path fill="#fff" d="M22 14l4 8h-8l4-8zm-6 12h12v2H16v-2z"/>
+  <text x="46" y="32" font-family="Plus Jakarta Sans, system-ui, sans-serif" font-size="22" font-weight="700" fill="#0a1a4a">Automystics</text>
+</svg>
