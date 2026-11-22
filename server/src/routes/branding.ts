@@ -78,11 +78,18 @@ async function setSetting(key: string, value: unknown) {
   );
 }
 
+function resolveLogoAbs(logoPath: string) {
+  return path.isAbsolute(logoPath)
+    ? logoPath
+    : path.join(__dirname, '..', '..', 'uploads', logoPath.replace(/^uploads[/\\]/, ''));
+}
+
 async function brandingPayload() {
   const company = { ...DEFAULT_COMPANY, ...parseJson(await getSetting('company'), {}) };
   const theme = { ...DEFAULT_THEME, ...parseJson(await getSetting('theme'), {}) };
   const logoPath = parseJson<string | null>(await getSetting('logoPath'), null);
-  const logoUrl = logoPath ? '/api/branding/logo-file' : null;
+  const logoUrl =
+    logoPath && fs.existsSync(resolveLogoAbs(logoPath)) ? '/api/branding/logo-file' : null;
   return { company, theme, logoUrl };
 }
 
@@ -170,10 +177,9 @@ router.delete('/logo', requireAuth, requirePermission('settings', 'update'), asy
 router.get('/logo-file', async (_req, res) => {
   const logoPath = parseJson<string | null>(await getSetting('logoPath'), null);
   if (!logoPath) return res.status(404).json({ error: 'No logo' });
-  const abs = path.isAbsolute(logoPath)
-    ? logoPath
-    : path.join(__dirname, '..', '..', 'uploads', logoPath.replace(/^uploads[/\\]/, ''));
+  const abs = resolveLogoAbs(logoPath);
   if (!fs.existsSync(abs)) return res.status(404).json({ error: 'Logo file missing' });
+  res.setHeader('Cache-Control', 'public, max-age=300');
   res.sendFile(abs);
 });
 
