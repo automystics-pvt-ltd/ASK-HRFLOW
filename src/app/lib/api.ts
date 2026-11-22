@@ -131,6 +131,11 @@ export const dashboardApi = {
 export const accessApi = {
   users: () => api<{ users: AppUser[] }>('/api/access/users'),
   permissions: () => api<{ roleTemplates: Record<'admin' | 'hr' | 'employee', PermissionSet> }>('/api/access/permissions'),
+  updateRoleTemplate: (role: 'admin' | 'hr' | 'employee', permissions: PermissionSet) =>
+    api<{ ok: boolean }>(`/api/access/permissions/${role}`, {
+      method: 'PUT',
+      body: JSON.stringify({ permissions }),
+    }),
   updateUser: (id: string, body: Record<string, unknown>) =>
     api<{ user: AppUser }>(`/api/access/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   createUser: (body: { name: string; email: string; role: string; department: string; password?: string }) =>
@@ -194,4 +199,6 @@ export const reportsApi = {
 
 export const shiftsApi = {
   list: () => api<{ shifts: Record<string, unknown>[] }>('/api/shifts'),
+  create: (payload: { name: string; startTime: string; endTime: string; graceMinutes?: number }) =>
+    api<{ id: number }>('/api/shifts', { method: 'POST', body: JSON.stringify(payload) }),
 };

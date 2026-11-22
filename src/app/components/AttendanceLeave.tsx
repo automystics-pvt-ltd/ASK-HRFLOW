@@ -9,7 +9,7 @@ import { Timesheet } from './Timesheet';
 import { toast } from 'sonner';
 import { useAccess } from '../lib/access';
 import { useRole } from '../lib/roles';
-import { attendanceApi, leaveApi } from '../lib/api';
+import { attendanceApi, leaveApi, shiftsApi } from '../lib/api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Label } from './ui/label';
 import { Input } from './ui/input';
@@ -59,6 +59,26 @@ export function AttendanceLeave() {
   const [isLeaveRequestOpen, setIsLeaveRequestOpen] = useState(false);
   const [selectedTab, setSelectedTab] = useState('attendance');
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+  const [shifts, setShifts] = useState<{ id: number; name: string; startTime: string; endTime: string }[]>([]);
+  const [shiftOpen, setShiftOpen] = useState(false);
+  const [shiftForm, setShiftForm] = useState({ name: '', startTime: '09:00', endTime: '17:00' });
+  const canManageShifts = acc.can('attendance', 'update');
+
+  const loadShifts = () => {
+    shiftsApi
+      .list()
+      .then(({ shifts: rows }) =>
+        setShifts(
+          (rows ?? []).map((r) => ({
+            id: Number(r.id),
+            name: String(r.name ?? ''),
+            startTime: String(r.start_time ?? r.startTime ?? '').slice(0, 5),
+            endTime: String(r.end_time ?? r.endTime ?? '').slice(0, 5),
+          })),
+        ),
+      )
+      .catch(() => {});
+  };
 
   useEffect(() => {
     leaveApi
@@ -84,6 +104,7 @@ export function AttendanceLeave() {
       .balances()
       .then(({ balances }) => setLeaveBalance(balances))
       .catch(() => {});
+    loadShifts();
   }, []);
 
   const visibleRequests = can.canApproveLeave ? requests : requests.filter((r) => r.userId === me.id);
@@ -165,6 +186,97 @@ export function AttendanceLeave() {
         </TabsList>
         <TabsContent value="attendance" className="space-y-6">
           <Timesheet />
+          <Card className="border border-border rounded-xl">
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="w-5 h-5" />
+                Shifts
+              </CardTitle>
+              {canManageShifts && (
+                <Dialog open={shiftOpen} onOpenChange={setShiftOpen}>
+                  <DialogTrigger asChild>
+                    <Button size="sm" className="gap-1">
+                      <Plus className="w-4 h-4" />
+                      Add shift
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Create shift</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="shift-name">Name</Label>
+                        <Input
+                          id="shift-name"
+                          value={shiftForm.name}
+                          onChange={(e) => setShiftForm((f) => ({ ...f, name: e.target.value }))}
+                          placeholder="Day shift"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="shift-start">Start</Label>
+                          <Input
+                            id="shift-start"
+                            type="time"
+                            value={shiftForm.startTime}
+                            onChange={(e) => setShiftForm((f) => ({ ...f, startTime: e.target.value }))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="shift-end">End</Label>
+                          <Input
+                            id="shift-end"
+                            type="time"
+                            value={shiftForm.endTime}
+                            onChange={(e) => setShiftForm((f) => ({ ...f, endTime: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+                      <Button
+                        onClick={() => {
+                          if (!shiftForm.name.trim()) {
+                            toast.error('Name is required');
+                            return;
+                          }
+                          void shiftsApi
+                            .create({
+                              name: shiftForm.name.trim(),
+                              startTime: shiftForm.startTime,
+                              endTime: shiftForm.endTime,
+                            })
+                            .then(() => {
+                              toast.success('Shift created');
+                              setShiftOpen(false);
+                              setShiftForm({ name: '', startTime: '09:00', endTime: '17:00' });
+                              loadShifts();
+                            })
+                            .catch((e) => toast.error(e instanceof Error ? e.message : 'Could not create shift'));
+                        }}
+                      >
+                        Save shift
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {shifts.length === 0 && <p className="text-sm text-muted-foreground">No shifts configured yet.</p>}
+              {shifts.map((s) => (
+                <div key={s.id} className="flex items-center justify-between p-3 rounded-lg border border-border/50">
+                  <div>
+                    <p className="font-medium">{s.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {s.startTime} – {s.endTime}
+                    </p>
+                  </div>
+                  <Badge variant="secondary">Active</Badge>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
           <Card className="border border-border rounded-xl">
             <CardHeader><CardTitle className="flex items-center gap-2"><Clock className="w-5 h-5" />Recent Attendance</CardTitle></CardHeader>
             <CardContent className="space-y-4">

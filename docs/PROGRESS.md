@@ -10,8 +10,12 @@
 - [x] Attendance check-in/out with event log + daily rollup
 - [x] Leave types, balances, requests with overlap/balance checks + approve/reject UI
 - [x] Timesheets lifecycle APIs (entries, submit, approve/reject, lock)
+- [x] Weekly timesheet UI (list/create week, add hours, submit; approve via `attendance` approve)
 - [x] Dashboard stats from SQL (no hardcoded KPIs)
 - [x] Access API (users, permissions, create/patch user, role template update)
+- [x] Access Control role-template UI persists via `PUT /api/access/permissions/:role`
+- [x] Documents list + upload UI in Settings (wired to `/api/documents`)
+- [x] Shifts list + create dialog in Attendance (wired to `/api/shifts`)
 - [x] Notices, audit logs; payroll/recruitment/performance/settings bound to MySQL
 - [x] Swagger at `/api/docs`
 - [x] Seed + `db:migrate` (schema_migrations)
@@ -28,11 +32,9 @@
 
 ## Remaining / follow-up
 
-- [ ] Access Control role-template UI → `PUT /api/access/permissions/:role`
-- [ ] Weekly timesheet submit/approve UI (check-in API works; weekly sheets partial)
-- [ ] Documents UI upload/list screens
-- [ ] Shift management UI
 - [ ] Pagination UI for employee list
 - [ ] Zod validation on all write endpoints
 - [ ] Load/stress suite
+- [ ] Document download / employee-scoped document views (list+upload only today)
+- [ ] Shift edit/deactivate UI (create + list only today)
 - [x] Redeployed VPS `https://hrflow.automystics.tech` on MySQL (`/api/health` → mysql)
