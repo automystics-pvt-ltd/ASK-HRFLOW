@@ -35,4 +35,4 @@
 - [ ] Pagination UI for employee list
 - [ ] Zod validation on all write endpoints
 - [ ] Load/stress suite
-- [ ] Redeploy VPS (`hrflow.automystics.tech`) on this MySQL stack
+- [x] Redeployed VPS `https://hrflow.automystics.tech` on MySQL (`/api/health` → mysql)
