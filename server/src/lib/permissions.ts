@@ -16,6 +16,7 @@ export const MODULES = [
   'reports',
   'access',
   'audit',
+  'login-activity',
   'settings',
 ] as const;
 
@@ -39,6 +40,7 @@ export const defaultRolePermissions: Record<Role, PermissionSet> = {
     'ai-assistant': ['read'],
     notifications: ['read'],
     reports: ['read', 'export'],
+    'login-activity': ['read', 'export'],
     settings: ['read'],
   },
   manager: {
@@ -52,6 +54,7 @@ export const defaultRolePermissions: Record<Role, PermissionSet> = {
     engagement: ['read'],
     'ai-assistant': ['read'],
     reports: ['read', 'export'],
+    'login-activity': ['read', 'export'],
     settings: ['read'],
   },
   employee: {

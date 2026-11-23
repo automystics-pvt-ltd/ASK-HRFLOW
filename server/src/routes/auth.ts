@@ -4,6 +4,7 @@ import { query, queryOne, DEFAULT_TENANT } from '../db.js';
 import { clearAuthCookie, requireAuth, setAuthCookie, signToken } from '../middleware/auth.js';
 import { getFullUser } from '../lib/users.js';
 import { writeAudit } from '../lib/audit.js';
+import { recordLoginActivity } from '../lib/login-activity.js';
 import {
   LOCKOUT_MINUTES,
   LOCKOUT_THRESHOLD,
@@ -98,13 +99,21 @@ router.post('/login', async (req, res) => {
   const remember = Boolean(rememberMe);
   const token = signToken({ id: user.id, role: user.role, email: user.email }, remember);
   setAuthCookie(res, token, remember);
-  await writeAudit(user.id, user.name, 'Login', `${user.name} signed in`, user.id);
+  await writeAudit(user.id, user.name, 'Login', `${user.name} signed in`, user.id, {
+    moduleKey: 'auth',
+  });
+  await recordLoginActivity({ req, userId: user.id, userName: user.name, event: 'login' });
   res.json({ user });
 });
 
 router.post('/logout', requireAuth, async (req, res) => {
   const user = await getFullUser(req.user!.sub);
-  if (user) await writeAudit(user.id, user.name, 'Logout', `${user.name} signed out`, user.id);
+  if (user) {
+    await writeAudit(user.id, user.name, 'Logout', `${user.name} signed out`, user.id, {
+      moduleKey: 'auth',
+    });
+    await recordLoginActivity({ req, userId: user.id, userName: user.name, event: 'logout' });
+  }
   clearAuthCookie(res);
   res.json({ ok: true });
 });

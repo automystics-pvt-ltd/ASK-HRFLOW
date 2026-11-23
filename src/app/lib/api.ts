@@ -43,13 +43,24 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   return body as T;
 }
 
+export type AuthLocationPayload = {
+  latitude?: number | null;
+  longitude?: number | null;
+  accuracy?: number | null;
+  locationStatus?: 'granted' | 'denied' | 'unavailable' | 'unsupported' | 'not_requested';
+};
+
 export const authApi = {
-  login: (email: string, password: string, rememberMe = false) =>
+  login: (email: string, password: string, rememberMe = false, location?: AuthLocationPayload) =>
     api<{ user: AppUser }>('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password, rememberMe }),
+      body: JSON.stringify({ email, password, rememberMe, ...(location || {}) }),
     }),
-  logout: () => api<{ ok: boolean }>('/api/auth/logout', { method: 'POST', body: '{}' }),
+  logout: (location?: AuthLocationPayload) =>
+    api<{ ok: boolean }>('/api/auth/logout', {
+      method: 'POST',
+      body: JSON.stringify(location || {}),
+    }),
   me: () => api<{ user: AppUser | null }>('/api/auth/me'),
   forgotPassword: (payload: { email: string; employeeId?: string; note?: string }) =>
     api<{ ok: boolean; message: string }>('/api/auth/forgot-password', {
@@ -429,6 +440,43 @@ export const auditApi = {
     api<{ employee: { id: number; name: string }; audit: AuditEntry[]; timezone?: string }>(
       `/api/audit/employee/${id}?limit=${limit}`,
     ),
+};
+
+export type LoginActivityRow = {
+  id: string;
+  userId: string;
+  userName: string;
+  event: 'login' | 'logout' | string;
+  ip: string | null;
+  userAgent: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  accuracy: number | null;
+  locationLabel: string | null;
+  locationAddress: string | null;
+  locationStatus: string;
+  ts: string;
+  displayTime?: string;
+  timezone?: string;
+};
+
+export const loginActivityApi = {
+  list: (limit = 200, params?: Record<string, string | number | undefined>) => {
+    const q = new URLSearchParams({ limit: String(limit) });
+    if (params) {
+      for (const [k, v] of Object.entries(params)) {
+        if (v != null && v !== '') q.set(k, String(v));
+      }
+    }
+    return api<{ activity: LoginActivityRow[]; total?: number; timezone?: string }>(
+      `/api/login-activity?${q}`,
+    );
+  },
+  facets: () =>
+    api<{
+      users: Array<{ id: string; name: string; count: number }>;
+      events: Array<{ key: string; count: number }>;
+    }>('/api/login-activity/facets'),
 };
 
 export const payrollApi = {

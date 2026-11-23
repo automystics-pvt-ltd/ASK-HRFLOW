@@ -7,6 +7,7 @@ import { ForcePasswordChange } from './components/ForcePasswordChange';
 import { AccessRestricted } from './components/AccessRestricted';
 import { AccessControl } from './components/AccessControl';
 import { AuditLogs, NotificationsPage } from './components/AuditNotifications';
+import { LoginActivityPage } from './components/LoginActivity';
 import { EmployeeDashboard, HRDashboard, ManagerDashboard } from './components/RoleDashboards';
 import { Toaster } from './components/ui/sonner';
 import { DashboardLayout } from './components/DashboardLayout';
@@ -21,7 +22,7 @@ import {
   SettingsPage,
 } from './feature-pages';
 
-const validTabs = ['dashboard', 'employees', 'attendance', 'payroll', 'recruitment', 'performance', 'engagement', 'notifications', 'access', 'audit', 'settings'];
+const validTabs = ['dashboard', 'employees', 'attendance', 'payroll', 'recruitment', 'performance', 'engagement', 'notifications', 'access', 'audit', 'login-activity', 'settings'];
 const tabFromHash = () => {
   const h = window.location.hash.replace('#/', '').replace('#', '');
   if (h === 'ai-assistant') return 'dashboard';
@@ -58,6 +59,7 @@ function Workspace() {
       case 'notifications': return <NotificationsPage />;
       case 'access': return <AccessControl />;
       case 'audit': return <AuditLogs />;
+      case 'login-activity': return <LoginActivityPage />;
       case 'settings': return <SettingsPage onNavigate={setActiveTab} />;
       default:
         return role === 'admin' ? (

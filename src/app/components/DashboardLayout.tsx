@@ -23,6 +23,7 @@ import {
   Sun,
   ShieldCheck,
   ScrollText,
+  History,
   LogOut,
   UserCircle,
 } from 'lucide-react';
@@ -48,6 +49,7 @@ const menuItems = [
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'access', label: 'Access Control', icon: ShieldCheck },
   { id: 'audit', label: 'Audit Logs', icon: ScrollText },
+  { id: 'login-activity', label: 'Login Activity', icon: History },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 

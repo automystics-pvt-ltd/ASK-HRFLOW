@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { accessApi, auditApi, authApi, noticesApi, ApiError } from './api';
+import { captureAuthLocation } from './auth-location';
 
 export type Role = 'admin' | 'hr' | 'employee' | 'manager';
 export type Action = 'create' | 'read' | 'update' | 'delete' | 'approve' | 'export';
@@ -19,6 +20,7 @@ export const modules: ModuleDef[] = [
   { id: 'reports', label: 'Reports', description: 'Analytics and exports' },
   { id: 'access', label: 'Access Control', description: 'Users, roles and permissions', adminOnly: true },
   { id: 'audit', label: 'Audit Logs', description: 'System activity trail', adminOnly: true },
+  { id: 'login-activity', label: 'Login Activity', description: 'Employee login/logout timestamps and locations' },
   { id: 'settings', label: 'Organization Settings', description: 'Company, policies, configuration' },
 ];
 export const moduleLabel = (id: string) => modules.find((m) => m.id === id)?.label ?? id;
@@ -41,6 +43,7 @@ export const defaultRolePermissions: Record<Role, PermissionSet> = {
     'ai-assistant': ['read'],
     notifications: ['read'],
     reports: ['read', 'export'],
+    'login-activity': ['read', 'export'],
     settings: ['read'],
   },
   employee: {
@@ -65,6 +68,7 @@ export const defaultRolePermissions: Record<Role, PermissionSet> = {
     'ai-assistant': ['read'],
     notifications: ['read', 'approve'],
     reports: ['read', 'export'],
+    'login-activity': ['read', 'export'],
     settings: ['read'],
   },
 };
@@ -235,7 +239,8 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async (email: string, password: string, rememberMe = false) => {
     try {
-      const { user: u } = await authApi.login(email, password, rememberMe);
+      const location = await captureAuthLocation();
+      const { user: u } = await authApi.login(email, password, rememberMe, location);
       setSessionUser(u);
       log('Login', `${u.name} signed in`, u.id);
       return { ok: true as const };
@@ -257,7 +262,8 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     if (user) log('Logout', `${user.name} signed out`, user.id);
     try {
-      await authApi.logout();
+      const location = await captureAuthLocation();
+      await authApi.logout(location);
     } catch {
       /* cookie cleared client-side anyway */
     }
