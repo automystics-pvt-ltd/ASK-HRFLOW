@@ -30,11 +30,16 @@ npm run dev
 
 ## Demo accounts
 
-| Email | Role | Password |
-|-------|------|----------|
-| alvi@automystics.com | Admin | demo123 |
-| priya.nair@automystics.com | HR | demo123 |
-| rahul.verma@automystics.com | Employee | demo123 |
+Seeded usernames (local/dev). Passwords are hashed; the login page never displays credentials.
+Admin generates temporary demo passwords under **Access Control → Password & demo access**.
+After seed, the initial password for all demo users is `demo123` until rotated by Admin.
+
+| Email | Role |
+|-------|------|
+| alvi@automystics.com | Admin |
+| priya.nair@automystics.com | HR |
+| ananya.manager@automystics.com | Manager |
+| rahul.verma@automystics.com | Employee |
 
 ## Scripts
 

@@ -44,10 +44,75 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
 }
 
 export const authApi = {
-  login: (email: string, password: string) =>
-    api<{ user: AppUser }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  login: (email: string, password: string, rememberMe = false) =>
+    api<{ user: AppUser }>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, rememberMe }),
+    }),
   logout: () => api<{ ok: boolean }>('/api/auth/logout', { method: 'POST', body: '{}' }),
   me: () => api<{ user: AppUser | null }>('/api/auth/me'),
+  forgotPassword: (payload: { email: string; employeeId?: string; note?: string }) =>
+    api<{ ok: boolean; message: string }>('/api/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  changePassword: (payload: { currentPassword?: string; newPassword: string; confirmPassword: string }) =>
+    api<{ ok: boolean; user: AppUser }>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  resetPassword: (payload: { token: string; newPassword: string; confirmPassword: string }) =>
+    api<{ ok: boolean; message: string }>('/api/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  listPasswordResets: () =>
+    api<{
+      requests: Array<{
+        id: string;
+        userId: string | null;
+        email: string;
+        employeeId: string | null;
+        status: string;
+        requesterNote: string | null;
+        adminNote: string | null;
+        resolvedBy: string | null;
+        resolvedAt: string | null;
+        createdAt: string;
+      }>;
+    }>('/api/auth/password-resets'),
+  approvePasswordReset: (id: string, payload?: { mode?: 'temporary' | 'link'; adminNote?: string }) =>
+    api<{ ok: boolean; temporaryPassword: string | null; resetToken: string | null; message: string }>(
+      `/api/auth/password-resets/${id}/approve`,
+      { method: 'POST', body: JSON.stringify(payload ?? { mode: 'temporary' }) },
+    ),
+  rejectPasswordReset: (id: string, adminNote?: string) =>
+    api<{ ok: boolean }>(`/api/auth/password-resets/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ adminNote }),
+    }),
+  listDemoAccounts: () =>
+    api<{
+      accounts: Array<{
+        id: string;
+        name: string;
+        email: string;
+        role: string;
+        department: string;
+        active: boolean;
+        lastLogin: string | null;
+        mustChangePassword: boolean;
+      }>;
+    }>('/api/auth/demo-accounts'),
+  resetDemoCredentials: (id: string) =>
+    api<{ ok: boolean; email: string; temporaryPassword: string; message: string }>(
+      `/api/auth/demo-accounts/${id}/reset-credentials`,
+      { method: 'POST', body: '{}' },
+    ),
+  deactivateDemoAccount: (id: string) =>
+    api<{ ok: boolean }>(`/api/auth/demo-accounts/${id}/deactivate`, { method: 'POST', body: '{}' }),
+  activateDemoAccount: (id: string) =>
+    api<{ ok: boolean }>(`/api/auth/demo-accounts/${id}/activate`, { method: 'POST', body: '{}' }),
 };
 
 export type EmployeeRow = Record<string, unknown>;
@@ -255,7 +320,10 @@ export const accessApi = {
   updateUser: (id: string, body: Record<string, unknown>) =>
     api<{ user: AppUser }>(`/api/access/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   createUser: (body: { name: string; email: string; role: string; department: string; password?: string }) =>
-    api<{ user: AppUser }>('/api/access/users', { method: 'POST', body: JSON.stringify(body) }),
+    api<{ user: AppUser; temporaryPassword?: string }>('/api/access/users', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 };
 
 export const noticesApi = {

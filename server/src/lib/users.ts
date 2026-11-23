@@ -14,6 +14,9 @@ export interface AppUser {
   departmentAccess: string[];
   permissions?: PermissionSet;
   lastLogin?: string;
+  mustChangePassword?: boolean;
+  isDemo?: boolean;
+  mfaEnabled?: boolean;
 }
 
 export function toAppUser(row: Record<string, unknown>, permissions?: PermissionSet): AppUser {
@@ -33,6 +36,9 @@ export function toAppUser(row: Record<string, unknown>, permissions?: Permission
     departmentAccess,
     permissions,
     lastLogin: row.last_login ? new Date(String(row.last_login)).toISOString() : undefined,
+    mustChangePassword: Boolean(row.must_change_password),
+    isDemo: Boolean(row.is_demo),
+    mfaEnabled: Boolean(row.mfa_enabled),
   };
 }
 
@@ -72,17 +78,37 @@ function emptyPerms(): PermissionSet {
   return JSON.parse(JSON.stringify(defaultRolePermissions.employee)) as PermissionSet;
 }
 
+/** Strip sensitive actions for non-admin demo accounts. */
+export function applyDemoRestrictions(user: AppUser, permissions: PermissionSet): PermissionSet {
+  if (!user.isDemo || user.role === 'admin') return permissions;
+  const next: PermissionSet = JSON.parse(JSON.stringify(permissions));
+  const strip = (module: string, actions: Action[]) => {
+    next[module] = (next[module] ?? []).filter((a) => !actions.includes(a));
+  };
+  strip('payroll', ['create', 'update', 'delete', 'approve']);
+  strip('employees', ['export', 'delete']);
+  strip('reports', ['export']);
+  strip('claims' as string, ['approve', 'update']);
+  // claims may not be a module — also strip attendance export
+  strip('attendance', ['export']);
+  return next;
+}
+
 export async function getFullUser(userId: string): Promise<AppUser | null> {
   const row = await queryOne<Record<string, unknown>>(
     'SELECT * FROM users WHERE id = $1 AND tenant_id = $2',
     [userId, DEFAULT_TENANT],
   );
   if (!row) return null;
-  const permissions = await loadUserPermissions(userId, row.role as Role);
-  return toAppUser(row, permissions);
+  let permissions = await loadUserPermissions(userId, row.role as Role);
+  const user = toAppUser(row, permissions);
+  permissions = applyDemoRestrictions(user, permissions);
+  user.permissions = permissions;
+  return user;
 }
 
 export async function userCan(userId: string, role: Role, module: string, action: Action): Promise<boolean> {
-  const perms = await loadUserPermissions(userId, role);
-  return hasAction(perms, module, action);
+  const user = await getFullUser(userId);
+  if (!user) return false;
+  return hasAction(user.permissions ?? defaultRolePermissions[role], module, action);
 }

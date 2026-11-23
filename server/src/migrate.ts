@@ -78,6 +78,23 @@ async function ensureManagerRoleEnums() {
   console.log('  ~ role ENUMs include manager');
 }
 
+async function ensureAuthColumns() {
+  await ensureColumn('users', 'failed_login_attempts', 'INT NOT NULL DEFAULT 0');
+  await ensureColumn('users', 'locked_until', 'DATETIME NULL');
+  await ensureColumn('users', 'must_change_password', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await ensureColumn('users', 'is_demo', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await ensureColumn('users', 'password_changed_at', 'DATETIME NULL');
+  await ensureColumn('users', 'mfa_enabled', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await ensureColumn('users', 'mfa_secret', 'VARCHAR(128) NULL');
+  await pool.query(
+    `UPDATE users SET is_demo = 1
+     WHERE email IN (
+       'alvi@automystics.com','priya.nair@automystics.com','ananya.manager@automystics.com',
+       'rahul.verma@automystics.com','sarah.johnson@automystics.com','lisa.brown@automystics.com'
+     )`,
+  );
+}
+
 async function main() {
   await ensureMigrationsTable();
   const done = await applied();
@@ -100,6 +117,7 @@ async function main() {
           await ensureAdvancedColumns();
           await ensureManagerRoleEnums();
         }
+        if (id === '005_auth_password_security') await ensureAuthColumns();
         continue;
       }
       const sql = fs.readFileSync(path.join(migDir, file), 'utf8');
@@ -109,12 +127,14 @@ async function main() {
         await ensureAdvancedColumns();
         await ensureManagerRoleEnums();
       }
+      if (id === '005_auth_password_security') await ensureAuthColumns();
       await pool.query('INSERT INTO schema_migrations (id) VALUES (?)', [id]);
       console.log(`Applied migration ${id}`);
     }
   }
   await ensureBrandingDocsColumns();
   await ensureAdvancedColumns();
+  await ensureAuthColumns();
   try {
     await ensureManagerRoleEnums();
   } catch (e) {

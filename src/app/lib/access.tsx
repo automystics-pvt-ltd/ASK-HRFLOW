@@ -87,6 +87,9 @@ export interface AppUser {
   permissions?: PermissionSet;
   departmentAccess: string[];
   lastLogin?: string;
+  mustChangePassword?: boolean;
+  isDemo?: boolean;
+  mfaEnabled?: boolean;
 }
 export interface AuditEntry { id: string; ts: string; actorId: string; actorName: string; event: string; targetId?: string; detail: string }
 export interface Notice { id: string; ts: string; userId: string | 'all'; title: string; body: string; read: string[]; kind: 'approval' | 'access' | 'announcement' | 'alert' }
@@ -111,8 +114,10 @@ interface Ctx {
   notices: Notice[];
   unread: number;
   authReady: boolean;
-  login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<{ ok: boolean; error?: string }>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
+  setSessionUser: (u: AppUser | null) => void;
   permissionsOf: (u: AppUser) => PermissionSet;
   can: (module: string, action: Action) => boolean;
   setUserPermission: (userId: string, module: string, action: Action, on: boolean) => string | null;
@@ -121,7 +126,8 @@ interface Ctx {
   setUserRole: (userId: string, role: Role) => string | null;
   setUserActive: (userId: string, active: boolean) => string | null;
   setDepartmentAccess: (userId: string, dept: string, on: boolean) => string | null;
-  createUser: (u: { name: string; email: string; role: Role; department: string }) => string | null;
+  createUser: (u: { name: string; email: string; role: Role; department: string }) => Promise<{ ok: true; temporaryPassword?: string } | { ok: false; error: string }>;
+  reloadUsers: () => Promise<void>;
   log: (event: string, detail: string, targetId?: string) => void;
   notify: (n: Omit<Notice, 'id' | 'ts' | 'read'>) => void;
   markRead: (id?: string) => void;
@@ -205,9 +211,9 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
     setNotices((a) => [{ ...n, id: uid(), ts: new Date().toISOString(), read: [] }, ...a]);
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, rememberMe = false) => {
     try {
-      const { user: u } = await authApi.login(email, password);
+      const { user: u } = await authApi.login(email, password, rememberMe);
       setSessionUser(u);
       log('Login', `${u.name} signed in`, u.id);
       return { ok: true as const };
@@ -216,6 +222,15 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
       return { ok: false as const, error: msg };
     }
   }, [log]);
+
+  const refreshUser = useCallback(async () => {
+    try {
+      const { user: u } = await authApi.me();
+      setSessionUser(u);
+    } catch {
+      /* keep current session */
+    }
+  }, []);
 
   const logout = useCallback(async () => {
     if (user) log('Logout', `${user.name} signed out`, user.id);
@@ -295,31 +310,38 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
     log('Department access', `${on ? 'Granted' : 'Removed'} ${dept} access for ${t.name}`, id);
     return null;
   };
-  const createUser: Ctx['createUser'] = (n) => {
-    const err = canManage(); if (err) return err;
-    if (!can('access', 'create')) return 'You do not have permission to create users.';
-    if (n.role === 'admin' && user?.role !== 'admin') return 'Only an Admin can create Admin accounts.';
-    if (users.some((u) => u.email.toLowerCase() === n.email.trim().toLowerCase())) return 'A user with this email already exists.';
-    void accessApi
-      .createUser({ name: n.name, email: n.email, role: n.role, department: n.department })
-      .then(({ user: nu }) => {
-        setUsers((a) => [...a, nu]);
-        log('User created', `${nu.name} created as ${roleLabels[nu.role].label}`, nu.id);
-        notify({ userId: 'u-admin', kind: 'alert', title: 'New user onboarded', body: `${nu.name} (${roleLabels[nu.role].label}) joined ${nu.department}.` });
-      })
-      .catch(() => {
-        const nu: AppUser = {
-          id: 'u-' + uid(),
-          name: n.name.trim(),
-          email: n.email.trim(),
-          role: n.role,
-          department: n.department,
-          active: true,
-          departmentAccess: n.role === 'employee' ? [] : n.role === 'admin' ? departments : [n.department],
-        };
-        setUsers((a) => [...a, nu]);
+  const reloadUsers = useCallback(async () => {
+    if (!sessionUser) return;
+    try {
+      const { users: list } = await accessApi.users();
+      setUsers(list);
+    } catch {
+      /* keep current */
+    }
+  }, [sessionUser]);
+
+  const createUser: Ctx['createUser'] = async (n) => {
+    const err = canManage();
+    if (err) return { ok: false as const, error: err };
+    if (!can('access', 'create')) return { ok: false as const, error: 'You do not have permission to create users.' };
+    if (n.role === 'admin' && user?.role !== 'admin') return { ok: false as const, error: 'Only an Admin can create Admin accounts.' };
+    if (users.some((u) => u.email.toLowerCase() === n.email.trim().toLowerCase())) {
+      return { ok: false as const, error: 'A user with this email already exists.' };
+    }
+    try {
+      const res = await accessApi.createUser({ name: n.name, email: n.email, role: n.role, department: n.department });
+      setUsers((a) => [...a, res.user]);
+      log('User created', `${res.user.name} created as ${roleLabels[res.user.role].label}`, res.user.id);
+      notify({
+        userId: 'u-admin',
+        kind: 'alert',
+        title: 'New user onboarded',
+        body: `${res.user.name} (${roleLabels[res.user.role].label}) joined ${res.user.department}.`,
       });
-    return null;
+      return { ok: true as const, temporaryPassword: res.temporaryPassword };
+    } catch (e) {
+      return { ok: false as const, error: e instanceof ApiError ? e.message : 'Could not create user.' };
+    }
   };
 
   const visible = (n: Notice) => !!user && (n.userId === 'all' || n.userId === user.id);
@@ -335,8 +357,8 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
 
   const value: Ctx = {
     user, role: user?.role ?? 'employee', users, roleTemplates, audit, notices: notices.filter(visible), unread, authReady,
-    login, logout, permissionsOf, can, setUserPermission, resetUserPermissions, setRoleTemplate, setUserRole, setUserActive,
-    setDepartmentAccess, createUser, log, notify, markRead,
+    login, logout, refreshUser, setSessionUser, permissionsOf, can, setUserPermission, resetUserPermissions, setRoleTemplate, setUserRole, setUserActive,
+    setDepartmentAccess, createUser, reloadUsers, log, notify, markRead,
   };
   return <AccessContext.Provider value={value}>{children}</AccessContext.Provider>;
 }

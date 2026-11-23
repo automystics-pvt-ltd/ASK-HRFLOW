@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import bcrypt from 'bcryptjs';
 import { v4 as uuid } from 'uuid';
 import { DEFAULT_TENANT, query, queryOne } from '../db.js';
 import { attachUser, requireAuth } from '../middleware/auth.js';
@@ -7,6 +6,7 @@ import { ensureAppUser, requirePermission } from '../middleware/rbac.js';
 import { defaultRolePermissions, type Action, type PermissionSet, type Role } from '../lib/permissions.js';
 import { getFullUser, toAppUser } from '../lib/users.js';
 import { writeAudit } from '../lib/audit.js';
+import { generateTempPassword, hashPassword } from '../lib/password.js';
 
 const router = Router();
 const departments = ['Executive', 'Engineering', 'Product', 'Design', 'Sales', 'Marketing', 'HR', 'Finance'];
@@ -113,19 +113,21 @@ router.post('/users', requireAuth, attachUser, requirePermission('access', 'crea
   if (exists) return res.status(409).json({ error: 'Email already exists' });
 
   const id = 'u-' + uuid().slice(0, 8);
-  const hash = await bcrypt.hash(password || 'demo123', 10);
+  const temporaryPassword = password ? String(password) : generateTempPassword();
+  const hash = await hashPassword(temporaryPassword);
   const deptAccess =
     role === 'admin' ? departments : role === 'hr' ? [department, 'HR', 'Engineering'] : [];
 
   await query(
-    `INSERT INTO users (id, tenant_id, name, email, password_hash, role, department, active, department_access)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,1,$8)`,
+    `INSERT INTO users (id, tenant_id, name, email, password_hash, role, department, active, department_access, must_change_password, password_changed_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,1,$8,1,NOW())`,
     [id, DEFAULT_TENANT, name.trim(), email.trim().toLowerCase(), hash, role, department, JSON.stringify(deptAccess)],
   );
 
   if (me) await writeAudit(me.id, me.name, 'User created', `Created ${name}`, id);
   const user = await getFullUser(id);
-  res.status(201).json({ user });
+  // temporaryPassword returned once — never stored in plaintext
+  res.status(201).json({ user, temporaryPassword });
 });
 
 export default router;
