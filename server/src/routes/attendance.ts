@@ -4,6 +4,8 @@ import { attachUser, requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
 import { userCan } from '../lib/users.js';
 import { reverseGeocode } from '../lib/geocode.js';
+import { getEmployeeManagerUserId, isManagerOf } from '../lib/team.js';
+import { notifyUserIds } from '../lib/notices-helper.js';
 
 const router = Router();
 
@@ -74,9 +76,49 @@ async function syncAttendanceDay(
   return { checkIn, checkOut, hours, location: locLabel, locationAddress: locAddress };
 }
 
+async function notifyManagerOfPunch(employeeUserId: string, action: 'check-in' | 'check-out', workDate: string) {
+  try {
+    const managerId = await getEmployeeManagerUserId(employeeUserId);
+    if (!managerId || managerId === employeeUserId) return;
+    const emp = await queryOne<{ name: string }>('SELECT name FROM users WHERE id = $1', [employeeUserId]);
+    const name = emp?.name || 'Team member';
+    const time = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    const title = action === 'check-in' ? `${name} checked in` : `${name} checked out`;
+    const body =
+      action === 'check-in'
+        ? `${name} checked in at ${time} on ${workDate}.`
+        : `${name} checked out at ${time} on ${workDate}.`;
+    // Deduped per employee+day+action so repeated punches don't spam
+    await notifyUserIds(
+      [managerId],
+      title,
+      body,
+      'attendance',
+      `att-${action === 'check-in' ? 'in' : 'out'}-${workDate}-${employeeUserId}`.slice(0, 28),
+    );
+  } catch {
+    /* notification must not break punch */
+  }
+}
+
 router.get('/', requireAuth, attachUser, requirePermission('attendance', 'read'), async (req, res) => {
-  const canAll = await userCan(req.user!.sub, req.user!.role, 'attendance', 'approve');
-  const userId = canAll && req.query.userId ? String(req.query.userId) : req.user!.sub;
+  const role = req.user!.role;
+  const canApprove = await userCan(req.user!.sub, role, 'attendance', 'approve');
+  let userId = req.user!.sub;
+
+  if (req.query.userId) {
+    const requested = String(req.query.userId);
+    if (role === 'admin' || role === 'hr') {
+      userId = requested;
+    } else if (canApprove && role === 'manager') {
+      if (requested !== req.user!.sub && !(await isManagerOf(req.user!.sub, requested))) {
+        return res.status(403).json({ error: 'You can only view attendance for your direct reports' });
+      }
+      userId = requested;
+    } else if (requested !== req.user!.sub) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+  }
 
   const rows = await query(
     `SELECT work_date, check_in, check_out, status, hours, location, location_address
@@ -94,6 +136,47 @@ router.get('/', requireAuth, attachUser, requirePermission('attendance', 'read')
       hours: Number(r.hours),
       location: r.location,
       locationAddress: r.location_address ?? null,
+    })),
+  });
+});
+
+/** Manager/HR/Admin: team attendance status for today (and optional date). */
+router.get('/team', requireAuth, attachUser, requirePermission('attendance', 'read'), async (req, res) => {
+  const role = req.user!.role;
+  if (role !== 'manager' && role !== 'admin' && role !== 'hr') {
+    return res.status(403).json({ error: 'Managers, HR, and Admin only' });
+  }
+  const workDate = String(req.query.date || todayDate()).slice(0, 10);
+  const params: unknown[] = [DEFAULT_TENANT, workDate];
+  let scope = '';
+  if (role === 'manager') {
+    scope = 'AND e.manager_user_id = $3';
+    params.push(req.user!.sub);
+  }
+
+  const rows = await query(
+    `SELECT e.id AS employee_id, e.name, e.department, e.user_id,
+            ad.check_in, ad.check_out, ad.status, ad.hours, ad.location
+     FROM employees e
+     LEFT JOIN attendance_days ad
+       ON ad.tenant_id = e.tenant_id AND ad.user_id = e.user_id AND ad.work_date = $2
+     WHERE e.tenant_id = $1 AND e.status = 'Active' AND e.user_id IS NOT NULL ${scope}
+     ORDER BY e.name`,
+    params,
+  );
+
+  res.json({
+    date: workDate,
+    team: rows.map((r) => ({
+      employeeId: Number(r.employee_id),
+      name: String(r.name),
+      department: String(r.department || ''),
+      userId: String(r.user_id),
+      status: r.status ? String(r.status) : 'Not checked in',
+      checkIn: r.check_in ? new Date(r.check_in as Date).toISOString() : null,
+      checkOut: r.check_out ? new Date(r.check_out as Date).toISOString() : null,
+      hours: r.hours != null ? Number(r.hours) : 0,
+      location: r.location ?? null,
     })),
   });
 });
@@ -127,6 +210,7 @@ router.post('/check-in', requireAuth, requirePermission('attendance', 'create'),
     ],
   );
   const day = await syncAttendanceDay(req.user!.sub, workDate, loc);
+  await notifyManagerOfPunch(req.user!.sub, 'check-in', workDate);
   res.status(201).json({
     ok: true,
     checkIn: day.checkIn?.occurred_at,
@@ -169,6 +253,7 @@ router.post('/check-out', requireAuth, requirePermission('attendance', 'create')
     ],
   );
   const day = await syncAttendanceDay(req.user!.sub, workDate, loc);
+  await notifyManagerOfPunch(req.user!.sub, 'check-out', workDate);
   res.json({
     ok: true,
     hours: day.hours,

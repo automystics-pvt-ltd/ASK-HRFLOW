@@ -32,7 +32,8 @@ export type EmployeeRecord = {
   position: string;
   status: string;
   joinDate: string;
-  salary: number;
+  /** null when API hides confidential salary from this viewer */
+  salary: number | null;
   location: string;
   state: string;
   district: string;
@@ -40,6 +41,7 @@ export type EmployeeRecord = {
   avatar?: string;
   manager?: string;
   managerUserId?: string | null;
+  role?: string | null;
   skills?: string[];
 };
 
@@ -65,7 +67,7 @@ function mapRow(row: Record<string, unknown>): EmployeeRecord {
     position: String(row.position ?? ''),
     status: String(row.status ?? 'Active'),
     joinDate: String(row.join_date ?? row.joinDate ?? '2020-01-01').slice(0, 10),
-    salary: row.salary == null ? 0 : Number(row.salary),
+    salary: row.salary == null || row.salary === '' ? null : Number(row.salary),
     location: String(row.location ?? ''),
     state: String(row.state ?? ''),
     district: String(row.district ?? ''),
@@ -78,6 +80,7 @@ function mapRow(row: Record<string, unknown>): EmployeeRecord {
         : row.manager_user_id != null
           ? String(row.manager_user_id)
           : null,
+    role: row.role != null ? String(row.role) : row.user_role != null ? String(row.user_role) : null,
     skills: Array.isArray(skills) ? skills.map(String) : typeof skills === 'string' ? skills.split(',') : [],
   };
 }
@@ -139,7 +142,12 @@ export function EmployeeManagement() {
     void reloadEmployees();
   }, []);
 
-  const managerOptions = employees.filter((e) => e.userId && e.status === 'Active');
+  const managerOptions = employees.filter(
+    (e) =>
+      e.userId &&
+      e.status === 'Active' &&
+      (!e.role || e.role === 'manager' || e.role === 'admin' || e.role === 'hr'),
+  );
 
   const openEdit = (employee: EmployeeRecord) => {
     setSelectedEmployee(employee);
@@ -172,13 +180,12 @@ export function EmployeeManagement() {
     const mgr = managerOptions.find((m) => m.userId === editForm.managerUserId);
     setEditBusy(true);
     try {
-      await employeesApi.update(selectedEmployee.id, {
+      const payload: Record<string, unknown> = {
         name: editForm.name.trim(),
         email: editForm.email.trim(),
         phone: editForm.phone.trim() || null,
         department: editForm.department,
         position: editForm.position.trim(),
-        salary: Number(editForm.salary) || 0,
         status: editForm.status,
         location: editForm.location.trim() || null,
         state: editForm.state.trim() || null,
@@ -186,7 +193,12 @@ export function EmployeeManagement() {
         country: editForm.country,
         managerUserId: editForm.managerUserId === 'none' ? null : editForm.managerUserId,
         manager: mgr?.name ?? null,
-      });
+      };
+      // Only send salary when the viewer can see it — omit preserves existing confidential value
+      if (selectedEmployee.salary != null || can.canEditEmployee) {
+        if (editForm.salary !== '') payload.salary = Number(editForm.salary) || 0;
+      }
+      await employeesApi.update(selectedEmployee.id, payload);
       toast.success('Employee updated');
       setSelectedEmployee(null);
       await reloadEmployees();
@@ -548,7 +560,9 @@ export function EmployeeManagement() {
             <>
               <DialogHeader><DialogTitle>Edit {selectedEmployee.name}</DialogTitle></DialogHeader>
               <p className="text-sm text-muted-foreground">
-                {formatMoney(selectedEmployee.salary, currencyFor(selectedEmployee.id, selectedEmployee.country))} current salary baseline
+                {selectedEmployee.salary == null
+                  ? 'Salary confidential'
+                  : `${formatMoney(selectedEmployee.salary, currencyFor(selectedEmployee.id, selectedEmployee.country))} current salary baseline`}
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
                 <div className="space-y-2 md:col-span-2"><Label>Full name</Label><Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} disabled={!can.canEditEmployee} /></div>
@@ -562,7 +576,22 @@ export function EmployeeManagement() {
                   </Select>
                 </div>
                 <div className="space-y-2"><Label>Position</Label><Input value={editForm.position} onChange={(e) => setEditForm({ ...editForm, position: e.target.value })} disabled={!can.canEditEmployee} /></div>
-                <div className="space-y-2"><Label>Salary</Label><Input type="number" value={editForm.salary} onChange={(e) => setEditForm({ ...editForm, salary: e.target.value })} disabled={!can.canEditEmployee} /></div>
+                {selectedEmployee.salary != null || can.canEditEmployee ? (
+                  <div className="space-y-2">
+                    <Label>Salary</Label>
+                    <Input
+                      type="number"
+                      value={editForm.salary}
+                      onChange={(e) => setEditForm({ ...editForm, salary: e.target.value })}
+                      disabled={!can.canEditEmployee}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>Salary</Label>
+                    <p className="text-sm text-muted-foreground py-2">Confidential</p>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label>Status</Label>
                   <Select value={editForm.status} onValueChange={(v) => setEditForm({ ...editForm, status: v })} disabled={!can.canEditEmployee}>

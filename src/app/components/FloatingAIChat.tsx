@@ -19,18 +19,35 @@ type ChatMessage = {
 const STORAGE_KEY = 'ask-hrflow-ai-chat-v1';
 
 function welcomeMessage(role: string): ChatMessage {
+  const byRole: Record<string, { content: string; suggestions: string[] }> = {
+    admin: {
+      content:
+        "Hi — I'm ASK AI for Admins. I can guide company setup, roles, payroll, hierarchy, audits, and org-wide HR operations. What do you need?",
+      suggestions: ['Pending approvals', 'How do I assign managers?', 'Payroll overview', 'Audit trail tips'],
+    },
+    hr: {
+      content:
+        "Hi — I'm ASK AI for HR. I can help with employees, leave, attendance, claims, documents, and day-to-day HR workflows.",
+      suggestions: ['Pending leave', 'Add an employee', 'Upcoming holidays', 'Claims to review'],
+    },
+    manager: {
+      content:
+        "Hi — I'm ASK AI for Managers. I can help with your team's attendance, leave approvals, availability, and reporting lines — without sharing confidential salaries.",
+      suggestions: ['Team attendance today', 'Pending approvals', 'Who reports to me?', 'How do I approve leave?'],
+    },
+    employee: {
+      content:
+        "Hi — I'm ASK AI. I can help with your leave, attendance, holidays, payslips, claims, and how to use HRFlow. What would you like to know?",
+      suggestions: ['My leave balance', 'Upcoming holidays', 'My attendance', 'How do I request leave?'],
+    },
+  };
+  const cfg = byRole[role] || byRole.employee;
   return {
     id: 'welcome',
     role: 'assistant',
-    content:
-      role === 'employee'
-        ? "Hi — I'm ASK AI. I can help with your leave, attendance, holidays, payslips, and how to use HRFlow. What would you like to know?"
-        : "Hi — I'm ASK AI. I can help with leave, attendance, holidays, team info in your scope, payroll guidance, and navigation. Ask away.",
+    content: cfg.content,
     timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-    suggestions:
-      role === 'employee'
-        ? ['My leave balance', 'Upcoming holidays', 'My attendance', 'How do I request leave?']
-        : ['Pending approvals', 'Upcoming holidays', 'Team leave overview', 'How do I run payroll?'],
+    suggestions: cfg.suggestions,
   };
 }
 

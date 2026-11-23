@@ -21,6 +21,10 @@ export function ForcePasswordChange() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (newPassword.length < 8) return setError('Password must be at least 8 characters.');
+    if (!/[A-Za-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      return setError('Password must include at least one letter and one number.');
+    }
     if (newPassword !== confirmPassword) return setError('Passwords do not match.');
     setBusy(true);
     try {

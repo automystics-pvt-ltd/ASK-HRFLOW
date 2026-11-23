@@ -111,6 +111,10 @@ export function LoginScreen() {
   const submitReset = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!resetToken.trim()) return setError('Reset token is required.');
+    if (newPassword.length < 8) return setError('Password must be at least 8 characters.');
+    if (!/[A-Za-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      return setError('Password must include at least one letter and one number.');
+    }
     if (newPassword !== confirmPassword) return setError('Passwords do not match.');
     setBusy(true);
     setError('');
@@ -120,11 +124,12 @@ export function LoginScreen() {
         newPassword,
         confirmPassword,
       });
-      setInfo(res.message);
+      setInfo(res.message || 'Password updated. Sign in with your new password.');
       setView('login');
       setPassword('');
       setNewPassword('');
       setConfirmPassword('');
+      setResetToken('');
       window.history.replaceState({}, '', window.location.pathname);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not reset password.');
@@ -368,6 +373,7 @@ export function LoginScreen() {
                   <div className="space-y-2">
                     <Label htmlFor="reset-new">New password</Label>
                     <Input id="reset-new" type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="h-11" required minLength={8} />
+                    <p className="text-xs text-muted-foreground">At least 8 characters with a letter and a number.</p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="reset-confirm">Confirm password</Label>

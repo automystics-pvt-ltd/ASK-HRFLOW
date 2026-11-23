@@ -45,7 +45,7 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
     totalEmployees: 0,
     activeEmployees: 0,
     newHires: 0,
-    monthlyPayroll: 0,
+    monthlyPayroll: null as number | null,
     attendanceRate: 0,
     presentToday: 0,
     pendingLeave: 0,
@@ -82,7 +82,7 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
           totalEmployees: Number(s.totalEmployees ?? 0),
           activeEmployees: Number(s.activeEmployees ?? 0),
           newHires: Number(s.newHires ?? 0),
-          monthlyPayroll: Number(s.monthlyPayroll ?? 0),
+          monthlyPayroll: s.monthlyPayroll == null ? null : Number(s.monthlyPayroll),
           attendanceRate: Number(s.attendanceRate ?? 0),
           presentToday: Number(s.presentToday ?? 0),
           pendingLeave: Number(s.pendingLeave ?? 0),
@@ -233,12 +233,16 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
           { title: 'Attendance Rate', value: `${stats.attendanceRate}%`, progress: stats.attendanceRate, icon: Clock },
           {
             title: 'Monthly Payroll',
-            value: formatMoney(
-              stats.monthlyPayroll,
-              currencyByCode(stats.reportingCurrency) || reporting,
-              { compact: stats.monthlyPayroll >= 100000 },
-            ),
-            sub: `${stats.pendingLeave} leave · ${stats.pendingClaims} claims pending`,
+            value:
+              stats.monthlyPayroll == null
+                ? '—'
+                : formatMoney(stats.monthlyPayroll, currencyByCode(stats.reportingCurrency) || reporting, {
+                    compact: stats.monthlyPayroll >= 100000,
+                  }),
+            sub:
+              stats.monthlyPayroll == null
+                ? 'Confidential for your role'
+                : `${stats.pendingLeave} leave · ${stats.pendingClaims} claims pending`,
             icon: DollarSign,
           },
           {

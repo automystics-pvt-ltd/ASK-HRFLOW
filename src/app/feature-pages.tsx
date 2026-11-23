@@ -147,12 +147,16 @@ export function PayrollManagement() {
   const myCountry = 'India';
   const myCur = currencyFor(user?.id ?? 'me', myCountry);
 
-  if (role === 'employee') {
+  if (role === 'employee' || role === 'manager') {
     return (
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-medium">My Payslips</h1>
-          <p className="text-muted-foreground">You can only view your own pay information</p>
+          <p className="text-muted-foreground">
+            {role === 'manager'
+              ? 'You can view your own payslips only. Team salaries stay confidential.'
+              : 'You can only view your own pay information'}
+          </p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {(

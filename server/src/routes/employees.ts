@@ -5,6 +5,7 @@ import { ensureAppUser, requirePermission, requireSelfOrPermission } from '../mi
 import { hasAction } from '../lib/permissions.js';
 import { writeAudit } from '../lib/audit.js';
 import { isoDate } from '../lib/dates.js';
+import { canViewEmployeeActivity } from '../lib/team.js';
 
 const router = Router();
 
@@ -34,6 +35,7 @@ function mapEmployee(row: Record<string, unknown>, hideSalary: boolean) {
     avatar: row.avatar,
     manager: row.manager,
     managerUserId: row.manager_user_id ?? null,
+    role: row.user_role != null ? String(row.user_role) : row.role != null ? String(row.role) : null,
     skills: parsed,
   };
   const audit = {
@@ -55,40 +57,46 @@ router.get('/', requireAuth, attachUser, requirePermission('employees', 'read'),
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
   const offset = (page - 1) * limit;
 
-  const filters: string[] = ['tenant_id = $1'];
+  const filters: string[] = ['e.tenant_id = $1'];
   const params: unknown[] = [DEFAULT_TENANT];
   let idx = 2;
-  // Managers only see their direct reports
+  // Managers only see their direct reports (and themselves when linked)
   if (req.user!.role === 'manager') {
-    filters.push(`manager_user_id = $${idx++}`);
+    filters.push(`(e.manager_user_id = $${idx} OR e.user_id = $${idx})`);
     params.push(req.user!.sub);
+    idx++;
   }
   if (q) {
-    filters.push(`(name LIKE $${idx} OR email LIKE $${idx} OR department LIKE $${idx})`);
+    filters.push(`(e.name LIKE $${idx} OR e.email LIKE $${idx} OR e.department LIKE $${idx})`);
     params.push(`%${q}%`);
     idx++;
   }
   if (department && department !== 'All') {
-    filters.push(`department = $${idx++}`);
+    filters.push(`e.department = $${idx++}`);
     params.push(department);
   }
   if (status && status !== 'All') {
-    filters.push(`status = $${idx++}`);
+    filters.push(`e.status = $${idx++}`);
     params.push(status);
   }
 
   const where = filters.join(' AND ');
-  const rows = await query(`SELECT * FROM employees WHERE ${where} ORDER BY name LIMIT $${idx} OFFSET $${idx + 1}`, [
-    ...params,
-    limit,
-    offset,
-  ]);
+  const rows = await query(
+    `SELECT e.*, u.role AS user_role
+     FROM employees e
+     LEFT JOIN users u ON u.id = e.user_id
+     WHERE ${where}
+     ORDER BY e.name LIMIT $${idx} OFFSET $${idx + 1}`,
+    [...params, limit, offset],
+  );
   const [countRow] = await query<{ count: number | string }>(
-    `SELECT COUNT(*) AS count FROM employees WHERE ${where}`,
+    `SELECT COUNT(*) AS count FROM employees e WHERE ${where}`,
     params,
   );
 
-  const canSeeAllSalary = u && hasAction(u.permissions ?? {}, 'employees', 'update');
+  // Salary: Admin, or anyone explicitly granted employees:update (typically HR). Managers default to read-only → hidden.
+  const canSeeAllSalary =
+    req.user!.role === 'admin' || (u != null && hasAction(u.permissions ?? {}, 'employees', 'update'));
   const hideOthersSalary = !canSeeAllSalary;
 
   res.json({
@@ -157,10 +165,28 @@ router.get('/hierarchy', requireAuth, attachUser, requirePermission('employees',
 });
 
 router.get('/:id', requireAuth, attachUser, requireSelfOrPermission('employees', 'read'), async (req, res) => {
-  const row = await queryOne('SELECT * FROM employees WHERE id = $1 AND tenant_id = $2', [req.params.id, DEFAULT_TENANT]);
+  const row = await queryOne(
+    `SELECT e.*, u.role AS user_role
+     FROM employees e
+     LEFT JOIN users u ON u.id = e.user_id
+     WHERE e.id = $1 AND e.tenant_id = $2`,
+    [req.params.id, DEFAULT_TENANT],
+  );
   if (!row) return res.status(404).json({ error: 'Not found' });
+
+  const role = req.user!.role;
+  const isSelf = row.user_id === req.user!.sub;
+  if (role === 'manager' && !isSelf) {
+    const ok = await canViewEmployeeActivity(req.user!.sub, role, String(row.user_id || ''));
+    // Also allow when this manager is the assigned reporting manager (covers employees without login)
+    const isDirectReport = String(row.manager_user_id || '') === req.user!.sub;
+    if (!ok && !isDirectReport) return res.status(403).json({ error: 'Forbidden' });
+  }
+
   const u = await ensureAppUser(req);
-  const hideSalary = row.user_id !== req.user!.sub && !hasAction(u?.permissions ?? {}, 'employees', 'update');
+  const canSeeOthersSalary =
+    role === 'admin' || hasAction(u?.permissions ?? {}, 'employees', 'update');
+  const hideSalary = !isSelf && !canSeeOthersSalary;
   res.json({ employee: mapEmployee(row, hideSalary) });
 });
 
@@ -210,52 +236,109 @@ router.post('/', requireAuth, attachUser, requirePermission('employees', 'create
 
 router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'update'), async (req, res) => {
   const e = req.body || {};
-  const email = String(e.email || '').trim().toLowerCase();
-  const dup = await queryOne('SELECT id FROM employees WHERE tenant_id = $1 AND LOWER(email) = $2 AND id <> $3', [
-    DEFAULT_TENANT,
-    email,
-    req.params.id,
-  ]);
-  if (dup) return res.status(409).json({ error: 'Employee with this email already exists' });
-
   const before = await queryOne(
     'SELECT * FROM employees WHERE id = $1 AND tenant_id = $2',
     [req.params.id, DEFAULT_TENANT],
   );
   if (!before) return res.status(404).json({ error: 'Not found' });
 
+  const pick = <T,>(val: T | undefined, fallback: T): T => (val !== undefined ? val : fallback);
+
+  const emailRaw = e.email !== undefined ? String(e.email || '').trim().toLowerCase() : String(before.email).toLowerCase();
+  if (e.email !== undefined) {
+    const dup = await queryOne(
+      'SELECT id FROM employees WHERE tenant_id = $1 AND LOWER(email) = $2 AND id <> $3',
+      [DEFAULT_TENANT, emailRaw, req.params.id],
+    );
+    if (dup) return res.status(409).json({ error: 'Employee with this email already exists' });
+  }
+
   const managerProvided = e.managerUserId !== undefined || e.manager_user_id !== undefined;
-  const managerUserId = managerProvided ? (e.managerUserId ?? e.manager_user_id ?? null) : null;
-  const managerName = e.manager !== undefined ? e.manager : null;
+  let managerUserId: string | null = managerProvided
+    ? (e.managerUserId ?? e.manager_user_id ?? null)
+    : before.manager_user_id
+      ? String(before.manager_user_id)
+      : null;
+  if (managerUserId === '' || managerUserId === 'none') managerUserId = null;
+
+  let managerName: string | null =
+    e.manager !== undefined ? (e.manager ? String(e.manager) : null) : before.manager ? String(before.manager) : null;
+
+  if (managerProvided && managerUserId) {
+    if (before.user_id && String(before.user_id) === String(managerUserId)) {
+      return res.status(400).json({ error: 'An employee cannot report to themselves' });
+    }
+    const mgrUser = await queryOne<{ id: string; name: string; role: string; active: number }>(
+      `SELECT id, name, role, active FROM users WHERE id = $1 AND tenant_id = $2`,
+      [managerUserId, DEFAULT_TENANT],
+    );
+    if (!mgrUser || !Number(mgrUser.active)) {
+      return res.status(400).json({ error: 'Reporting manager user not found or inactive' });
+    }
+    if (!['manager', 'admin', 'hr'].includes(String(mgrUser.role))) {
+      return res.status(400).json({
+        error: 'Reporting manager must have Manager, HR, or Admin role so approvals can route correctly',
+      });
+    }
+    // Prevent simple cycles: manager's manager chain must not include this employee
+    let walk: string | null = managerUserId;
+    for (let i = 0; i < 12 && walk; i++) {
+      const link = await queryOne<{ manager_user_id: string | null; user_id: string | null }>(
+        `SELECT manager_user_id, user_id FROM employees WHERE tenant_id = $1 AND user_id = $2 LIMIT 1`,
+        [DEFAULT_TENANT, walk],
+      );
+      if (!link) break;
+      if (before.user_id && String(link.manager_user_id || '') === String(before.user_id)) {
+        return res.status(400).json({ error: 'That assignment would create a reporting cycle' });
+      }
+      walk = link.manager_user_id ? String(link.manager_user_id) : null;
+    }
+    if (e.manager === undefined) managerName = mgrUser.name;
+  }
+
+  const next = {
+    name: String(pick(e.name, before.name)),
+    email: emailRaw,
+    phone: pick(e.phone, before.phone),
+    department: String(pick(e.department, before.department)),
+    position: String(pick(e.position, before.position)),
+    status: String(pick(e.status, before.status)),
+    salary: e.salary !== undefined && e.salary !== null ? Number(e.salary) : Number(before.salary ?? 0),
+    location: pick(e.location ?? e.city, before.location),
+    state: pick(e.state, before.state),
+    district: pick(e.district, before.district),
+    country: pick(e.country, before.country),
+    designation: pick(e.designation, before.designation),
+    employment_type: pick(e.employmentType ?? e.employment_type, before.employment_type),
+  };
 
   const me = await ensureAppUser(req);
   await query(
-    `UPDATE employees SET name=$1, email=$2, phone=$3, department=$4, position=$5, status=$6, salary=$7, location=$8, state=$9, district=$10, country=$11,
-       manager=CASE WHEN $18 = 1 THEN $12 ELSE manager END,
-       manager_user_id=CASE WHEN $18 = 1 THEN $13 ELSE manager_user_id END,
+    `UPDATE employees SET name=$1, email=$2, phone=$3, department=$4, position=$5, status=$6, salary=$7,
+       location=$8, state=$9, district=$10, country=$11,
+       manager=$12, manager_user_id=$13,
        designation=COALESCE($14, designation), employment_type=COALESCE($15, employment_type),
-       updated_by=$19, updated_at=CURRENT_TIMESTAMP
-     WHERE id=$16 AND tenant_id=$17`,
+       updated_by=$16, updated_at=CURRENT_TIMESTAMP
+     WHERE id=$17 AND tenant_id=$18`,
     [
-      e.name,
-      email,
-      e.phone,
-      e.department,
-      e.position,
-      e.status,
-      e.salary,
-      e.location ?? e.city ?? null,
-      e.state ?? null,
-      e.district ?? null,
-      e.country,
-      managerName,
-      managerUserId,
-      e.designation ?? null,
-      e.employmentType ?? e.employment_type ?? null,
+      next.name,
+      next.email,
+      next.phone,
+      next.department,
+      next.position,
+      next.status,
+      next.salary,
+      next.location,
+      next.state,
+      next.district,
+      next.country,
+      managerProvided ? managerName : before.manager,
+      managerProvided ? managerUserId : before.manager_user_id,
+      next.designation ?? null,
+      next.employment_type ?? null,
+      me?.id ?? req.user!.sub,
       req.params.id,
       DEFAULT_TENANT,
-      managerProvided ? 1 : 0,
-      me?.id ?? req.user!.sub,
     ],
   );
 
@@ -270,12 +353,12 @@ router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'upda
       manager_user_id: before.manager_user_id,
     };
     const afterSnap: Record<string, unknown> = {
-      name: e.name,
-      email,
-      department: e.department,
-      position: e.position,
-      status: e.status,
-      salary: e.salary,
+      name: next.name,
+      email: next.email,
+      department: next.department,
+      position: next.position,
+      status: next.status,
+      salary: next.salary,
       manager_user_id: managerProvided ? managerUserId : before.manager_user_id,
     };
     const changes: string[] = [];

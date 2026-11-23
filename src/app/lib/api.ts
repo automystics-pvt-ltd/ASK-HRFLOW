@@ -288,6 +288,21 @@ export const attendanceApi = {
       location?: string | null;
       locationAddress?: string | null;
     }>('/api/attendance/check-out', { method: 'POST', body: JSON.stringify(payload ?? {}) }),
+  team: (date?: string) =>
+    api<{
+      date: string;
+      team: Array<{
+        employeeId: number;
+        name: string;
+        department: string;
+        userId: string;
+        status: string;
+        checkIn: string | null;
+        checkOut: string | null;
+        hours: number;
+        location: string | null;
+      }>;
+    }>(date ? `/api/attendance/team?date=${encodeURIComponent(date)}` : '/api/attendance/team'),
 };
 
 export const timesheetsApi = {
@@ -316,7 +331,7 @@ export const dashboardApi = {
         pendingLeave: number;
         pendingTimesheets: number;
         attendanceRate: number;
-        monthlyPayroll: number;
+        monthlyPayroll: number | null;
         newHires: number;
         presentToday?: number;
         pendingClaims?: number;
