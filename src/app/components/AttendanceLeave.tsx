@@ -168,7 +168,7 @@ export function AttendanceLeave() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div><h1 className="text-2xl font-medium">Attendance & Leave</h1><p className="text-muted-foreground">Track attendance and manage leave requests</p></div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
           {acc.can('attendance', 'export') && (
             <Button
               variant="outline"
@@ -237,7 +237,7 @@ export function AttendanceLeave() {
       </div>
 
       <Tabs value={selectedTab} onValueChange={setSelectedTab}>
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-5 max-w-3xl">
+        <TabsList className="flex h-auto w-full max-w-3xl flex-wrap justify-start gap-1 p-1">
           <TabsTrigger value="attendance">Attendance</TabsTrigger>
           <TabsTrigger value="leave">Leave Requests</TabsTrigger>
           <TabsTrigger value="calendar">Calendar</TabsTrigger>
@@ -342,9 +342,11 @@ export function AttendanceLeave() {
             <CardContent className="space-y-4">
               {attendance.length === 0 && <p className="text-sm text-muted-foreground">No attendance records yet.</p>}
               {attendance.map((record, index) => (
-                <div key={index} className="flex justify-between p-4 rounded-lg border border-border/50">
-                  <AttendanceRecordRow record={record} />
-                  <Badge>{record.status}</Badge>
+                <div key={index} className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 p-4 rounded-lg border border-border/50">
+                  <div className="min-w-0 flex-1">
+                    <AttendanceRecordRow record={record} />
+                  </div>
+                  <Badge className="self-start shrink-0">{record.status}</Badge>
                 </div>
               ))}
             </CardContent>
@@ -368,15 +370,15 @@ export function AttendanceLeave() {
             <CardHeader><CardTitle>Leave Requests</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               {visibleRequests.map((request) => (
-                <div key={request.id} className="flex justify-between gap-3 p-4 border rounded-lg items-center">
+                <div key={request.id} className="flex flex-col sm:flex-row sm:justify-between gap-3 p-4 border rounded-lg sm:items-center">
                   <div className="flex gap-3 min-w-0">
-                    <Avatar><AvatarImage src={request.avatar} /><AvatarFallback>{request.employee.slice(0, 2)}</AvatarFallback></Avatar>
+                    <Avatar className="shrink-0"><AvatarImage src={request.avatar} /><AvatarFallback>{request.employee.slice(0, 2)}</AvatarFallback></Avatar>
                     <div className="min-w-0">
                       <p className="font-medium truncate">{request.employee}</p>
-                      <p className="text-sm text-muted-foreground">{request.type} · {request.days} day(s) · {request.startDate} → {request.endDate}</p>
+                      <p className="text-sm text-muted-foreground break-words">{request.type} · {request.days} day(s) · {request.startDate} → {request.endDate}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <Badge>{request.status}</Badge>
                     {request.status === 'Pending' && can.canApproveLeave && request.userId !== me.id && (
                       <>

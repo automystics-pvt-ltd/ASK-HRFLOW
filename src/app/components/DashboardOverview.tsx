@@ -295,11 +295,11 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
             </p>
           </CardHeader>
           <CardContent className="p-0 overflow-x-auto">
-            <table className="w-full text-sm min-w-[720px]">
-              <thead className="bg-muted/50 text-left">
+            <table className="w-full text-sm min-w-[640px]">
+              <thead className="bg-muted/80 text-left sticky top-0 z-10">
                 <tr>
                   {['Employee', 'Dept', 'Present (30d)', 'Leave', 'Claims', 'Monthly pay', 'Last modified'].map((h) => (
-                    <th key={h} className="p-3 font-medium">
+                    <th key={h} className="p-3 font-medium whitespace-nowrap">
                       {h}
                     </th>
                   ))}
@@ -308,17 +308,24 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
               <tbody>
                 {activityRows.slice(0, 25).map((r) => (
                   <tr key={r.id} className="border-t border-border">
-                    <td className="p-3">
-                      <div className="font-medium">{r.name}</div>
+                    <td className="p-3 min-w-0">
+                      <div className="font-medium truncate max-w-[10rem] sm:max-w-none">{r.name}</div>
                       <div className="text-xs text-muted-foreground">{r.status}</div>
                     </td>
                     <td className="p-3">{r.department}</td>
                     <td className="p-3">{r.presentDays30}</td>
                     <td className="p-3">{r.pendingLeave}</td>
                     <td className="p-3">{r.pendingClaims}</td>
-                    <td className="p-3">{formatMoney(r.monthlySalary, reporting)}</td>
-                    <td className="p-3 text-xs text-muted-foreground">
-                      {r.updatedAt ? new Date(r.updatedAt).toLocaleString() : '—'}
+                    <td className="p-3 whitespace-nowrap">{formatMoney(r.monthlySalary, reporting)}</td>
+                    <td className="p-3 text-xs text-muted-foreground whitespace-nowrap">
+                      {r.updatedAt
+                        ? new Date(r.updatedAt).toLocaleString('en-IN', {
+                            day: '2-digit',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : '—'}
                       {r.updatedBy ? ` · ${r.updatedBy}` : ''}
                     </td>
                   </tr>
