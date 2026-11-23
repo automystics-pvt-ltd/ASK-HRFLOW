@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from './ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from './ui/sheet';
@@ -7,7 +7,7 @@ import { useAccess, roleLabels } from '../lib/access';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { BrandLockup } from './Brand';
 import { useBranding } from '../lib/branding';
-import alviProfile from '../../assets/alvi-profile.jpg';
+import { employeesApi } from '../lib/api';
 import {
   Home,
   Users,
@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   ScrollText,
   LogOut,
+  UserCircle,
 } from 'lucide-react';
 import { FloatingAIChat } from './FloatingAIChat';
 import { GlobalSearchBar } from './GlobalSearchBar';
@@ -124,6 +125,7 @@ function SidebarCopyright({ onDark = false }: { onDark?: boolean }) {
 
 export function DashboardLayout({ activeTab, setActiveTab, isDarkMode, toggleDarkMode, children }: DashboardLayoutProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
   const { user, role, can, unread, logout } = useAccess();
   const { theme } = useBranding();
   const visibleItems = menuItems.filter((m) => can(m.id, 'read'));
@@ -137,6 +139,29 @@ export function DashboardLayout({ activeTab, setActiveTab, isDarkMode, toggleDar
   const sidebarPanelStyle: React.CSSProperties = {
     backgroundImage: `linear-gradient(180deg, ${sidebarFrom} 0%, ${sidebarTo} 100%)`,
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadAvatar = () => {
+      employeesApi
+        .me()
+        .then(({ employee }) => {
+          if (cancelled) return;
+          const url = employee.avatar ? String(employee.avatar) : null;
+          setProfileAvatar(url ? `${url}${url.includes('?') ? '&' : '?'}v=${Date.now()}` : null);
+        })
+        .catch(() => {
+          if (!cancelled) setProfileAvatar(null);
+        });
+    };
+    loadAvatar();
+    const onUpdated = () => loadAvatar();
+    window.addEventListener('employee-profile-updated', onUpdated);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('employee-profile-updated', onUpdated);
+    };
+  }, [user?.id]);
 
   const go = (id: string) => {
     setActiveTab(id);
@@ -245,8 +270,8 @@ export function DashboardLayout({ activeTab, setActiveTab, isDarkMode, toggleDar
                     aria-label="Account menu"
                   >
                     <Avatar className="ring-2 ring-primary/20 size-8 sm:size-9">
-                      <AvatarImage src={alviProfile} />
-                      <AvatarFallback>{user?.name.slice(0, 2).toUpperCase()}</AvatarFallback>
+                      {profileAvatar ? <AvatarImage src={profileAvatar} alt={user?.name || 'Profile'} /> : null}
+                      <AvatarFallback>{user?.name?.slice(0, 2).toUpperCase()}</AvatarFallback>
                     </Avatar>
                     <span className="hidden lg:block text-left leading-tight">
                       <span className="block text-sm font-medium">{user?.name}</span>
@@ -260,6 +285,15 @@ export function DashboardLayout({ activeTab, setActiveTab, isDarkMode, toggleDar
                     <div className="text-xs font-normal text-muted-foreground">{user?.email}</div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      sessionStorage.setItem('settings-section', 'account');
+                      go('settings');
+                    }}
+                  >
+                    <UserCircle className="w-4 h-4 mr-2" />
+                    My profile
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => void logout()}>
                     <LogOut className="w-4 h-4 mr-2" />
                     Sign out

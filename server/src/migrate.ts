@@ -101,6 +101,13 @@ async function ensureEmployeeLocationColumns() {
   await ensureColumn('employees', 'district', 'VARCHAR(120) NULL');
 }
 
+async function ensureEmployeeProfileColumns() {
+  await ensureColumn('employees', 'bio', 'TEXT NULL');
+  await ensureColumn('employees', 'experience', 'JSON NULL');
+  await ensureColumn('employees', 'qualifications', 'JSON NULL');
+  console.log('  ~ employee self-profile columns ensured');
+}
+
 async function ensureProdReadyColumns() {
   await ensureColumn('employees', 'created_by', 'VARCHAR(32) NULL');
   await ensureColumn('employees', 'updated_by', 'VARCHAR(32) NULL');
@@ -148,6 +155,7 @@ async function main() {
         if (id === '005_auth_password_security') await ensureAuthColumns();
         if (id === '006_employee_state') await ensureEmployeeLocationColumns();
         if (id === '009_prod_ready_audit_currency') await ensureProdReadyColumns();
+        if (id === '010_employee_self_profile') await ensureEmployeeProfileColumns();
         continue;
       }
       const sql = fs.readFileSync(path.join(migDir, file), 'utf8');
@@ -160,6 +168,7 @@ async function main() {
       if (id === '005_auth_password_security') await ensureAuthColumns();
       if (id === '006_employee_state') await ensureEmployeeLocationColumns();
       if (id === '009_prod_ready_audit_currency') await ensureProdReadyColumns();
+      if (id === '010_employee_self_profile') await ensureEmployeeProfileColumns();
       await pool.query('INSERT INTO schema_migrations (id) VALUES (?)', [id]);
       console.log(`Applied migration ${id}`);
     }
@@ -172,6 +181,11 @@ async function main() {
     await ensureProdReadyColumns();
   } catch (e) {
     console.warn('Prod-ready columns ensure skipped:', e instanceof Error ? e.message : e);
+  }
+  try {
+    await ensureEmployeeProfileColumns();
+  } catch (e) {
+    console.warn('Employee profile columns ensure skipped:', e instanceof Error ? e.message : e);
   }
   try {
     await ensureManagerRoleEnums();

@@ -129,6 +129,26 @@ export const employeesApi = {
     return api<{ employees: EmployeeRow[]; total: number; page: number }>(`/api/employees${suffix}`);
   },
   get: (id: string | number) => api<{ employee: EmployeeRow }>(`/api/employees/${id}`),
+  me: () => api<{ employee: EmployeeRow }>('/api/employees/me'),
+  updateMe: (payload: Record<string, unknown>) =>
+    api<{ employee: EmployeeRow }>('/api/employees/me', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  uploadAvatar: async (file: File) => {
+    const fd = new FormData();
+    fd.append('avatar', file);
+    const res = await fetch('/api/employees/me/avatar', {
+      method: 'POST',
+      body: fd,
+      credentials: 'include',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(String((data as { error?: string }).error || 'Upload failed'), res.status);
+    return data as { avatar: string; employee: EmployeeRow };
+  },
+  removeAvatar: () =>
+    api<{ ok: boolean; avatar: null }>('/api/employees/me/avatar', { method: 'DELETE', body: '{}' }),
   create: (payload: Record<string, unknown>) =>
     api<{ id: number }>('/api/employees', { method: 'POST', body: JSON.stringify(payload) }),
   update: (id: string | number, payload: Record<string, unknown>) =>
