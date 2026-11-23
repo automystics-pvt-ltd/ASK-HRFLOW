@@ -9,9 +9,10 @@ import { ImageWithFallback } from './figma/ImageWithFallback';
 import { approvalsApi, auditApi, dashboardApi, performanceApi } from '../lib/api';
 import { ApprovalReasonDialog } from './ApprovalReasonDialog';
 import { toast } from 'sonner';
+import { formatMoney, currencyByCode, useCurrency } from '../lib/currency';
 import {
   Users, Clock, DollarSign, TrendingUp, UserCheck, CalendarDays, Award, AlertCircle,
-  ArrowUpRight, Plus, MessageSquare, Heart, Loader2,
+  ArrowUpRight, Plus, MessageSquare, Loader2,
 } from 'lucide-react';
 
 type InboxItem = {
@@ -39,14 +40,17 @@ function relativeTime(iso: string) {
 
 export function DashboardOverview({ go }: { go: (tab: string) => void }) {
   const { user, can } = useAccess();
+  const { reporting } = useCurrency();
   const [stats, setStats] = useState({
     totalEmployees: 0,
     activeEmployees: 0,
     newHires: 0,
     monthlyPayroll: 0,
     attendanceRate: 0,
-    engagementScore: 0,
+    presentToday: 0,
     pendingLeave: 0,
+    pendingClaims: 0,
+    reportingCurrency: 'INR',
   });
   const [inbox, setInbox] = useState<InboxItem[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -80,8 +84,10 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
           newHires: Number(s.newHires ?? 0),
           monthlyPayroll: Number(s.monthlyPayroll ?? 0),
           attendanceRate: Number(s.attendanceRate ?? 0),
-          engagementScore: Number(s.attendanceRate ?? 0) > 0 ? Math.min(99, Math.round(Number(s.attendanceRate) * 0.9 + 10)) : 0,
+          presentToday: Number(s.presentToday ?? 0),
           pendingLeave: Number(s.pendingLeave ?? 0),
+          pendingClaims: Number(s.pendingClaims ?? 0),
+          reportingCurrency: String(s.reportingCurrency ?? 'INR'),
         });
       })
       .catch(() => {});
@@ -130,6 +136,28 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
   }, [can, loadInbox]);
 
   const [reasonTarget, setReasonTarget] = useState<{ id: number; action: 'approve' | 'reject' } | null>(null);
+  const [activityRows, setActivityRows] = useState<
+    Array<{
+      id: number;
+      name: string;
+      department: string;
+      status: string;
+      presentDays30: number;
+      pendingLeave: number;
+      pendingClaims: number;
+      monthlySalary: number;
+      updatedBy: string | null;
+      updatedAt: string | null;
+    }>
+  >([]);
+
+  useEffect(() => {
+    if (user?.role !== 'admin' && user?.role !== 'hr') return;
+    dashboardApi
+      .employeeActivity()
+      .then(({ employees }) => setActivityRows(employees ?? []))
+      .catch(() => setActivityRows([]));
+  }, [user?.role]);
 
   const decide = (id: number, action: 'approve' | 'reject') => {
     setReasonTarget({ id, action });
@@ -205,11 +233,20 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
           { title: 'Attendance Rate', value: `${stats.attendanceRate}%`, progress: stats.attendanceRate, icon: Clock },
           {
             title: 'Monthly Payroll',
-            value: `$${(stats.monthlyPayroll / 1e6).toFixed(1)}M`,
-            sub: `${stats.pendingLeave} leave pending`,
+            value: formatMoney(
+              stats.monthlyPayroll,
+              currencyByCode(stats.reportingCurrency) || reporting,
+              { compact: stats.monthlyPayroll >= 100000 },
+            ),
+            sub: `${stats.pendingLeave} leave · ${stats.pendingClaims} claims pending`,
             icon: DollarSign,
           },
-          { title: 'Engagement Score', value: `${stats.engagementScore}%`, progress: stats.engagementScore, icon: Heart },
+          {
+            title: 'Present Today',
+            value: stats.presentToday,
+            sub: `${stats.activeEmployees} active employees`,
+            icon: UserCheck,
+          },
         ].map((m) => (
           <Card
             key={m.title}
@@ -232,6 +269,49 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
           </Card>
         ))}
       </div>
+
+      {(user?.role === 'admin' || user?.role === 'hr') && activityRows.length > 0 && (
+        <Card className="border border-border rounded-xl">
+          <CardHeader>
+            <CardTitle className="text-base">Employee activity summary</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Live attendance, leave, claims, and compensation by employee
+            </p>
+          </CardHeader>
+          <CardContent className="p-0 overflow-x-auto">
+            <table className="w-full text-sm min-w-[720px]">
+              <thead className="bg-muted/50 text-left">
+                <tr>
+                  {['Employee', 'Dept', 'Present (30d)', 'Leave', 'Claims', 'Monthly pay', 'Last modified'].map((h) => (
+                    <th key={h} className="p-3 font-medium">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {activityRows.slice(0, 25).map((r) => (
+                  <tr key={r.id} className="border-t border-border">
+                    <td className="p-3">
+                      <div className="font-medium">{r.name}</div>
+                      <div className="text-xs text-muted-foreground">{r.status}</div>
+                    </td>
+                    <td className="p-3">{r.department}</td>
+                    <td className="p-3">{r.presentDays30}</td>
+                    <td className="p-3">{r.pendingLeave}</td>
+                    <td className="p-3">{r.pendingClaims}</td>
+                    <td className="p-3">{formatMoney(r.monthlySalary, reporting)}</td>
+                    <td className="p-3 text-xs text-muted-foreground">
+                      {r.updatedAt ? new Date(r.updatedAt).toLocaleString() : '—'}
+                      {r.updatedBy ? ` · ${r.updatedBy}` : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-6">
         <Card className="xl:col-span-2 border border-border shadow-[0_8px_24px_-12px_rgba(11,87,240,0.25)] bg-gradient-to-br from-card via-card to-primary/10 rounded-xl">

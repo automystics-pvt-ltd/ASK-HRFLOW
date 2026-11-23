@@ -31,6 +31,9 @@ const DEFAULT_COMPANY = {
   phone: '',
   email: '',
   website: '',
+  /** Company reporting currency — INR or USD only for financial display */
+  currency: 'INR' as 'INR' | 'USD',
+  timezone: 'Asia/Kolkata',
 };
 
 const DEFAULT_THEME = {
@@ -104,7 +107,10 @@ router.get('/', async (_req, res) => {
 
 router.put('/company', requireAuth, requirePermission('settings', 'update'), async (req, res) => {
   const body = req.body || {};
-  const current = parseJson(await getSetting('company'), DEFAULT_COMPANY);
+  const current = parseJson(await getSetting('company'), DEFAULT_COMPANY) as typeof DEFAULT_COMPANY;
+  const currencyRaw = String(body.currency ?? current.currency ?? DEFAULT_COMPANY.currency).toUpperCase();
+  const currency = currencyRaw === 'USD' ? 'USD' : 'INR';
+  const timezone = String(body.timezone ?? current.timezone ?? DEFAULT_COMPANY.timezone).trim() || DEFAULT_COMPANY.timezone;
   const next = {
     ...DEFAULT_COMPANY,
     ...current,
@@ -114,9 +120,29 @@ router.put('/company', requireAuth, requirePermission('settings', 'update'), asy
     phone: body.phone ?? current.phone ?? '',
     email: body.email ?? current.email ?? '',
     website: body.website ?? current.website ?? '',
+    currency,
+    timezone,
   };
   await setSetting('company', next);
   res.json({ company: next });
+});
+
+/** Admin-configurable FX rates (USD base). Historical payroll never auto-converts. */
+router.get('/exchange-rates', requireAuth, requirePermission('settings', 'read'), async (_req, res) => {
+  const { getExchangeRates } = await import('../lib/org-settings.js');
+  res.json({ rates: await getExchangeRates() });
+});
+
+router.put('/exchange-rates', requireAuth, requirePermission('settings', 'update'), async (req, res) => {
+  const body = req.body?.rates || req.body || {};
+  const next: Record<string, number> = {};
+  for (const [k, v] of Object.entries(body)) {
+    const n = Number(v);
+    if (k && Number.isFinite(n) && n > 0) next[String(k).toUpperCase()] = n;
+  }
+  next.USD = 1;
+  await setSetting('exchange_rates', next);
+  res.json({ rates: next });
 });
 
 router.put('/theme', requireAuth, requirePermission('settings', 'update'), async (req, res) => {

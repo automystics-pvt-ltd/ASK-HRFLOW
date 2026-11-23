@@ -36,8 +36,14 @@ function mapEmployee(row: Record<string, unknown>, hideSalary: boolean) {
     managerUserId: row.manager_user_id ?? null,
     skills: parsed,
   };
-  if (hideSalary) return { ...base, salary: null };
-  return { ...base, salary: Number(row.salary) };
+  const audit = {
+    createdBy: row.created_by ?? null,
+    updatedBy: row.updated_by ?? null,
+    updatedAt: row.updated_at ? new Date(String(row.updated_at)).toISOString() : null,
+    createdAt: row.created_at ? new Date(String(row.created_at)).toISOString() : null,
+  };
+  if (hideSalary) return { ...base, salary: null, ...audit };
+  return { ...base, salary: Number(row.salary), ...audit };
 }
 
 router.get('/', requireAuth, attachUser, requirePermission('employees', 'read'), async (req, res) => {
@@ -164,9 +170,10 @@ router.post('/', requireAuth, attachUser, requirePermission('employees', 'create
   const dup = await queryOne('SELECT id FROM employees WHERE tenant_id = $1 AND LOWER(email) = $2', [DEFAULT_TENANT, email]);
   if (dup) return res.status(409).json({ error: 'Employee with this email already exists' });
 
+  const u = await ensureAppUser(req);
   const id = await insert(
-    `INSERT INTO employees (tenant_id, user_id, name, email, phone, department, position, status, join_date, salary, location, state, district, country, avatar, manager, skills, manager_user_id, designation, employment_type)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+    `INSERT INTO employees (tenant_id, user_id, name, email, phone, department, position, status, join_date, salary, location, state, district, country, avatar, manager, skills, manager_user_id, designation, employment_type, created_by, updated_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
     [
       DEFAULT_TENANT,
       e.userId ?? null,
@@ -188,10 +195,16 @@ router.post('/', requireAuth, attachUser, requirePermission('employees', 'create
       e.managerUserId ?? e.manager_user_id ?? null,
       e.designation ?? e.position ?? null,
       e.employmentType ?? e.employment_type ?? 'full_time',
+      u?.id ?? req.user!.sub,
+      u?.id ?? req.user!.sub,
     ],
   );
-  const u = await ensureAppUser(req);
-  if (u) await writeAudit(u.id, u.name, 'Employee created', `Created employee ${e.name}`, String(id));
+  if (u) {
+    await writeAudit(u.id, u.name, 'Employee created', `Created employee ${e.name}`, String(id), {
+      moduleKey: 'employees',
+      after: { name: e.name, email, department: e.department, status: e.status ?? 'Active' },
+    });
+  }
   res.status(201).json({ id });
 });
 
@@ -215,11 +228,13 @@ router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'upda
   const managerUserId = managerProvided ? (e.managerUserId ?? e.manager_user_id ?? null) : null;
   const managerName = e.manager !== undefined ? e.manager : null;
 
+  const me = await ensureAppUser(req);
   await query(
     `UPDATE employees SET name=$1, email=$2, phone=$3, department=$4, position=$5, status=$6, salary=$7, location=$8, state=$9, district=$10, country=$11,
        manager=CASE WHEN $18 = 1 THEN $12 ELSE manager END,
        manager_user_id=CASE WHEN $18 = 1 THEN $13 ELSE manager_user_id END,
-       designation=COALESCE($14, designation), employment_type=COALESCE($15, employment_type)
+       designation=COALESCE($14, designation), employment_type=COALESCE($15, employment_type),
+       updated_by=$19, updated_at=CURRENT_TIMESTAMP
      WHERE id=$16 AND tenant_id=$17`,
     [
       e.name,
@@ -240,31 +255,43 @@ router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'upda
       req.params.id,
       DEFAULT_TENANT,
       managerProvided ? 1 : 0,
+      me?.id ?? req.user!.sub,
     ],
   );
 
-  const me = await ensureAppUser(req);
   if (me) {
+    const beforeSnap: Record<string, unknown> = {
+      name: before.name,
+      email: before.email,
+      department: before.department,
+      position: before.position,
+      status: before.status,
+      salary: before.salary,
+      manager_user_id: before.manager_user_id,
+    };
+    const afterSnap: Record<string, unknown> = {
+      name: e.name,
+      email,
+      department: e.department,
+      position: e.position,
+      status: e.status,
+      salary: e.salary,
+      manager_user_id: managerProvided ? managerUserId : before.manager_user_id,
+    };
     const changes: string[] = [];
-    if (managerProvided && String(before.manager_user_id ?? '') !== String(managerUserId ?? '')) {
-      changes.push(`manager ${before.manager_user_id ?? '—'} → ${managerUserId ?? '—'}`);
-    }
-    if (e.department != null && String(before.department) !== String(e.department)) {
-      changes.push(`department ${before.department} → ${e.department}`);
-    }
-    if (e.designation != null && String(before.designation ?? before.position ?? '') !== String(e.designation)) {
-      changes.push(`designation → ${e.designation}`);
-    }
-    if (e.position != null && String(before.position) !== String(e.position)) {
-      changes.push(`position ${before.position} → ${e.position}`);
+    for (const k of Object.keys(beforeSnap)) {
+      if (String(beforeSnap[k] ?? '') !== String(afterSnap[k] ?? '')) {
+        changes.push(`${k}: ${beforeSnap[k] ?? '—'} → ${afterSnap[k] ?? '—'}`);
+      }
     }
     if (changes.length) {
       await writeAudit(
         me.id,
         me.name,
-        'Org hierarchy updated',
+        'Employee updated',
         `Employee ${before.name}: ${changes.join('; ')}`,
         String(req.params.id),
+        { moduleKey: 'employees', before: beforeSnap, after: afterSnap },
       );
     }
   }
@@ -273,7 +300,18 @@ router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'upda
 });
 
 router.delete('/:id', requireAuth, requirePermission('employees', 'delete'), async (req, res) => {
+  const before = await queryOne('SELECT * FROM employees WHERE id = $1 AND tenant_id = $2', [
+    req.params.id,
+    DEFAULT_TENANT,
+  ]);
   await query('DELETE FROM employees WHERE id = $1 AND tenant_id = $2', [req.params.id, DEFAULT_TENANT]);
+  const me = await ensureAppUser(req);
+  if (me && before) {
+    await writeAudit(me.id, me.name, 'Employee deleted', `Deleted employee ${before.name}`, String(req.params.id), {
+      moduleKey: 'employees',
+      before: { name: before.name, email: before.email, department: before.department },
+    });
+  }
   res.json({ ok: true });
 });
 

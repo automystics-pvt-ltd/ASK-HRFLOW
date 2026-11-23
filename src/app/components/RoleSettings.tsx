@@ -562,6 +562,45 @@ export function RoleSettings({ onNavigate }: { onNavigate?: (tab: string) => voi
                     />
                   </div>
                 ))}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Reporting currency</Label>
+                    <Select
+                      value={String(company.currency ?? 'INR').toUpperCase() === 'USD' ? 'USD' : 'INR'}
+                      onValueChange={(v) => setCompany({ ...company, currency: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="INR">INR (₹)</SelectItem>
+                        <SelectItem value="USD">USD ($)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Used for payroll, dashboards, and reports. Historical payslips keep their original currency.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Company timezone</Label>
+                    <Select
+                      value={String(company.timezone ?? 'Asia/Kolkata')}
+                      onValueChange={(v) => setCompany({ ...company, timezone: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Asia/Kolkata">Asia/Kolkata (IST)</SelectItem>
+                        <SelectItem value="America/New_York">America/New_York (ET)</SelectItem>
+                        <SelectItem value="America/Los_Angeles">America/Los_Angeles (PT)</SelectItem>
+                        <SelectItem value="Europe/London">Europe/London</SelectItem>
+                        <SelectItem value="UTC">UTC</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">Audit timestamps display in this timezone.</p>
+                  </div>
+                </div>
                 <Button
                   disabled={savingCompany}
                   onClick={() => {
@@ -569,7 +608,7 @@ export function RoleSettings({ onNavigate }: { onNavigate?: (tab: string) => voi
                     void brandingApi
                       .updateCompany(company)
                       .then(() => branding.refresh())
-                      .then(() => toast.success('Company info saved'))
+                      .then(() => toast.success('Company info saved — reporting currency & timezone updated'))
                       .catch((e) => toast.error(e instanceof Error ? e.message : 'Save failed'))
                       .finally(() => setSavingCompany(false));
                   }}

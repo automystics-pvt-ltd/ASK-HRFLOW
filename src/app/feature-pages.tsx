@@ -123,7 +123,7 @@ function PayrollCurrencyAdmin() {
 export function PayrollManagement() {
   const { can, role } = useRole();
   const { user } = useAccess();
-  const { currencyFor } = useCurrency();
+  const { currencyFor, reporting } = useCurrency();
   const [runs, setRuns] = useState<Record<string, unknown>[]>([]);
   const [payslips, setPayslips] = useState<Record<string, unknown>[]>([]);
   const [busy, setBusy] = useState(false);
@@ -236,7 +236,7 @@ export function PayrollManagement() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {[
-          { label: 'Total Payroll', value: formatMoney(totalPayroll || 0, currencies.USD, { compact: true }), icon: DollarSign },
+          { label: 'Total Payroll', value: formatMoney(totalPayroll || 0, reporting, { compact: true }), icon: DollarSign },
           { label: 'Employees Processed', value: String(employeesProcessed), icon: Users },
           { label: 'Latest Run', value: nextLabel, icon: Calendar },
         ].map((s) => (
@@ -302,7 +302,7 @@ export function PayrollManagement() {
             className="h-20 flex-col gap-2"
             onClick={() => {
               toast.success(
-                `Payroll volume ${formatMoney(totalPayroll, currencies.USD)} across ${runs.length} run(s) · ${payslips.length} payslip(s)`,
+                `Payroll volume ${formatMoney(totalPayroll, reporting)} across ${runs.length} run(s) · ${payslips.length} payslip(s)`,
               );
             }}
           >

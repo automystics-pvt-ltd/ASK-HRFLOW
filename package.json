@@ -11,6 +11,7 @@
     "start": "tsx server/src/index.ts",
     "db:seed": "tsx server/src/seed.ts",
     "db:migrate": "tsx server/src/migrate.ts",
+    "db:purge-demo": "tsx server/src/purge-demo.ts",
     "test": "npm run test:unit && npm run test:api",
     "test:unit": "tsx --test tests/unit/*.test.ts",
     "test:api": "tsx --test tests/api/*.test.ts",
