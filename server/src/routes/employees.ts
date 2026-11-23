@@ -1,4 +1,9 @@
 import { Router } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { v4 as uuid } from 'uuid';
 import { DEFAULT_TENANT, insert, query, queryOne } from '../db.js';
 import { attachUser, requireAuth } from '../middleware/auth.js';
 import { ensureAppUser, requirePermission, requireSelfOrPermission } from '../middleware/rbac.js';
@@ -8,16 +13,112 @@ import { isoDate } from '../lib/dates.js';
 import { canViewEmployeeActivity } from '../lib/team.js';
 
 const router = Router();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const avatarsDir = path.join(__dirname, '..', '..', 'uploads', 'avatars');
+fs.mkdirSync(avatarsDir, { recursive: true });
+
+const avatarUpload = multer({
+  dest: avatarsDir,
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (!/^image\/(png|jpeg|jpg|webp)$/i.test(file.mimetype)) {
+      return cb(new Error('Only PNG, JPEG, or WebP images are allowed'));
+    }
+    cb(null, true);
+  },
+});
+
+function parseJsonArray(val: unknown): unknown[] {
+  if (val == null || val === '') return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function parseStringList(val: unknown): string[] {
+  return parseJsonArray(val)
+    .map((v) => String(v ?? '').trim())
+    .filter(Boolean);
+}
+
+function normalizeExperience(val: unknown): { title: string; company: string; years?: string; description?: string }[] {
+  return parseJsonArray(val)
+    .map((item) => {
+      if (typeof item === 'string') {
+        const s = item.trim();
+        return s ? { title: s, company: '', years: '', description: '' } : null;
+      }
+      if (item && typeof item === 'object') {
+        const o = item as Record<string, unknown>;
+        const title = String(o.title ?? o.role ?? '').trim();
+        if (!title) return null;
+        return {
+          title,
+          company: String(o.company ?? '').trim(),
+          years: String(o.years ?? o.period ?? '').trim(),
+          description: String(o.description ?? '').trim(),
+        };
+      }
+      return null;
+    })
+    .filter((x): x is { title: string; company: string; years?: string; description?: string } => Boolean(x));
+}
+
+function normalizeQualifications(val: unknown): { name: string; institution?: string; year?: string }[] {
+  return parseJsonArray(val)
+    .map((item) => {
+      if (typeof item === 'string') {
+        const s = item.trim();
+        return s ? { name: s, institution: '', year: '' } : null;
+      }
+      if (item && typeof item === 'object') {
+        const o = item as Record<string, unknown>;
+        const name = String(o.name ?? o.title ?? '').trim();
+        if (!name) return null;
+        return {
+          name,
+          institution: String(o.institution ?? '').trim(),
+          year: String(o.year ?? '').trim(),
+        };
+      }
+      return null;
+    })
+    .filter((x): x is { name: string; institution?: string; year?: string } => Boolean(x));
+}
+
+function resolveAvatarAbs(avatar: string | null | undefined): string | null {
+  if (!avatar) return null;
+  const raw = String(avatar);
+  if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:')) return null;
+  if (path.isAbsolute(raw) && fs.existsSync(raw)) return raw;
+  const base = path.basename(raw.replace(/^uploads[/\\]/, '').replace(/^avatars[/\\]/, ''));
+  const abs = path.join(avatarsDir, base);
+  return fs.existsSync(abs) ? abs : null;
+}
 
 function mapEmployee(row: Record<string, unknown>, hideSalary: boolean) {
-  const skills = row.skills;
-  let parsed: string[] = [];
-  if (Array.isArray(skills)) parsed = skills.map(String);
-  else if (skills) parsed = JSON.parse(String(skills));
+  const id = Number(row.id);
+  const skills = parseStringList(row.skills);
   const join = isoDate(row.join_date);
+  const avatarStored = row.avatar != null && String(row.avatar).trim() ? String(row.avatar) : null;
+  const hasFile = Boolean(resolveAvatarAbs(avatarStored));
+  const avatarUrl =
+    hasFile || (avatarStored && (avatarStored.startsWith('/api/') || avatarStored.startsWith('http')))
+      ? avatarStored?.startsWith('http') || avatarStored?.startsWith('/api/')
+        ? avatarStored
+        : `/api/employees/${id}/avatar-file`
+      : avatarStored;
   const base = {
-    id: Number(row.id),
+    id,
     user_id: row.user_id,
+    userId: row.user_id != null ? String(row.user_id) : null,
     name: row.name,
     email: row.email,
     phone: row.phone,
@@ -32,11 +133,14 @@ function mapEmployee(row: Record<string, unknown>, hideSalary: boolean) {
     state: row.state ?? '',
     district: row.district ?? '',
     country: row.country,
-    avatar: row.avatar,
+    avatar: avatarUrl,
+    bio: row.bio != null ? String(row.bio) : '',
+    experience: normalizeExperience(row.experience),
+    qualifications: normalizeQualifications(row.qualifications),
     manager: row.manager,
     managerUserId: row.manager_user_id ?? null,
     role: row.user_role != null ? String(row.user_role) : row.role != null ? String(row.role) : null,
-    skills: parsed,
+    skills,
   };
   const audit = {
     createdBy: row.created_by ?? null,
@@ -46,6 +150,27 @@ function mapEmployee(row: Record<string, unknown>, hideSalary: boolean) {
   };
   if (hideSalary) return { ...base, salary: null, ...audit };
   return { ...base, salary: Number(row.salary), ...audit };
+}
+
+async function loadLinkedEmployee(userId: string) {
+  return queryOne(
+    `SELECT e.*, u.role AS user_role
+     FROM employees e
+     LEFT JOIN users u ON u.id = e.user_id
+     WHERE e.tenant_id = $1 AND e.user_id = $2
+     LIMIT 1`,
+    [DEFAULT_TENANT, userId],
+  );
+}
+
+function unlinkAvatarFile(avatar: string | null | undefined) {
+  const abs = resolveAvatarAbs(avatar);
+  if (!abs) return;
+  try {
+    fs.unlinkSync(abs);
+  } catch {
+    /* ignore */
+  }
 }
 
 router.get('/', requireAuth, attachUser, requirePermission('employees', 'read'), async (req, res) => {
@@ -110,6 +235,175 @@ router.get('/', requireAuth, attachUser, requirePermission('employees', 'read'),
     page,
     total: Number(countRow?.count ?? 0),
   });
+});
+
+/** Current user's linked employee profile (self-service). Must be before /:id. */
+router.get('/me', requireAuth, attachUser, async (req, res) => {
+  try {
+    const { linkEmployeeToUserByEmail } = await import('../lib/link-employee-user.js');
+    const u = await ensureAppUser(req);
+    if (u?.email) await linkEmployeeToUserByEmail(String(u.email), req.user!.sub);
+  } catch {
+    /* non-fatal */
+  }
+  const row = await loadLinkedEmployee(req.user!.sub);
+  if (!row) {
+    return res.status(404).json({
+      error: 'No employee profile is linked to your account. Ask Admin/HR to create or link your employee record.',
+    });
+  }
+  res.json({ employee: mapEmployee(row, false) });
+});
+
+/** Self-service profile update — never allows salary, role, manager, department, status. */
+router.patch('/me', requireAuth, attachUser, async (req, res) => {
+  const row = await loadLinkedEmployee(req.user!.sub);
+  if (!row) {
+    return res.status(404).json({
+      error: 'No employee profile is linked to your account. Ask Admin/HR to create or link your employee record.',
+    });
+  }
+
+  const body = req.body || {};
+  const phone = body.phone !== undefined ? String(body.phone || '').trim() : String(row.phone || '');
+  if (!phone) return res.status(400).json({ error: 'Phone is required' });
+
+  const location =
+    body.location !== undefined || body.city !== undefined
+      ? String(body.location ?? body.city ?? '').trim() || null
+      : row.location;
+  const state = body.state !== undefined ? String(body.state || '').trim() || null : row.state;
+  const district = body.district !== undefined ? String(body.district || '').trim() || null : row.district;
+  const country =
+    body.country !== undefined ? String(body.country || '').trim() || null : row.country;
+  const bio = body.bio !== undefined ? String(body.bio || '').trim() : String(row.bio || '');
+  if (bio.length > 2000) return res.status(400).json({ error: 'Bio must be 2000 characters or fewer' });
+
+  const skills =
+    body.skills !== undefined ? parseStringList(body.skills).slice(0, 40) : parseStringList(row.skills);
+  const experience =
+    body.experience !== undefined
+      ? normalizeExperience(body.experience).slice(0, 20)
+      : normalizeExperience(row.experience);
+  const qualifications =
+    body.qualifications !== undefined
+      ? normalizeQualifications(body.qualifications).slice(0, 20)
+      : normalizeQualifications(row.qualifications);
+
+  const me = await ensureAppUser(req);
+  await query(
+    `UPDATE employees SET phone=$1, location=$2, state=$3, district=$4, country=$5,
+       bio=$6, skills=$7, experience=$8, qualifications=$9,
+       updated_by=$10, updated_at=CURRENT_TIMESTAMP
+     WHERE id=$11 AND tenant_id=$12`,
+    [
+      phone,
+      location,
+      state,
+      district,
+      country,
+      bio || null,
+      JSON.stringify(skills),
+      JSON.stringify(experience),
+      JSON.stringify(qualifications),
+      me?.id ?? req.user!.sub,
+      row.id,
+      DEFAULT_TENANT,
+    ],
+  );
+
+  if (me) {
+    await writeAudit(me.id, me.name, 'Profile updated', 'Updated own employee profile', String(row.id), {
+      moduleKey: 'employees',
+      after: { phone, location, state, district, country, bio, skills, experience, qualifications },
+    });
+  }
+
+  const next = await loadLinkedEmployee(req.user!.sub);
+  res.json({ employee: mapEmployee(next || row, false) });
+});
+
+router.post(
+  '/me/avatar',
+  requireAuth,
+  attachUser,
+  (req, res, next) => {
+    avatarUpload.single('avatar')(req, res, (err) => {
+      if (err) return res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed' });
+      next();
+    });
+  },
+  async (req, res) => {
+    const row = await loadLinkedEmployee(req.user!.sub);
+    if (!row) {
+      if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      return res.status(404).json({ error: 'No employee profile is linked to your account' });
+    }
+    if (!req.file) return res.status(400).json({ error: 'No photo uploaded' });
+
+    const ext = path.extname(req.file.originalname || '').toLowerCase() || '.jpg';
+    const safeExt = ['.png', '.jpg', '.jpeg', '.webp'].includes(ext) ? ext : '.jpg';
+    const filename = `${uuid().slice(0, 12)}${safeExt}`;
+    const dest = path.join(avatarsDir, filename);
+    fs.renameSync(req.file.path, dest);
+
+    unlinkAvatarFile(row.avatar != null ? String(row.avatar) : null);
+    const relative = path.join('avatars', filename);
+    const me = await ensureAppUser(req);
+    await query(
+      `UPDATE employees SET avatar=$1, updated_by=$2, updated_at=CURRENT_TIMESTAMP
+       WHERE id=$3 AND tenant_id=$4`,
+      [relative, me?.id ?? req.user!.sub, row.id, DEFAULT_TENANT],
+    );
+    if (me) {
+      await writeAudit(me.id, me.name, 'Profile photo updated', 'Uploaded profile photo', String(row.id), {
+        moduleKey: 'employees',
+      });
+    }
+    res.status(201).json({
+      avatar: `/api/employees/${row.id}/avatar-file`,
+      employee: mapEmployee({ ...row, avatar: relative }, false),
+    });
+  },
+);
+
+router.delete('/me/avatar', requireAuth, attachUser, async (req, res) => {
+  const row = await loadLinkedEmployee(req.user!.sub);
+  if (!row) return res.status(404).json({ error: 'No employee profile is linked to your account' });
+  unlinkAvatarFile(row.avatar != null ? String(row.avatar) : null);
+  const me = await ensureAppUser(req);
+  await query(
+    `UPDATE employees SET avatar=NULL, updated_by=$1, updated_at=CURRENT_TIMESTAMP
+     WHERE id=$2 AND tenant_id=$3`,
+    [me?.id ?? req.user!.sub, row.id, DEFAULT_TENANT],
+  );
+  if (me) {
+    await writeAudit(me.id, me.name, 'Profile photo removed', 'Removed profile photo', String(row.id), {
+      moduleKey: 'employees',
+    });
+  }
+  res.json({ ok: true, avatar: null });
+});
+
+/** Serve employee avatar file — self or employees:read. Must be before /:id. */
+router.get('/:id/avatar-file', requireAuth, attachUser, async (req, res) => {
+  const row = await queryOne('SELECT id, user_id, avatar FROM employees WHERE id = $1 AND tenant_id = $2', [
+    req.params.id,
+    DEFAULT_TENANT,
+  ]);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const isSelf = row.user_id && String(row.user_id) === req.user!.sub;
+  if (!isSelf) {
+    const u = await ensureAppUser(req);
+    const canRead = u != null && hasAction(u.permissions ?? {}, 'employees', 'read');
+    if (!canRead && req.user!.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+  }
+  const abs = resolveAvatarAbs(row.avatar != null ? String(row.avatar) : null);
+  if (!abs) return res.status(404).json({ error: 'No photo' });
+  res.setHeader('Cache-Control', 'private, max-age=120');
+  res.sendFile(abs);
 });
 
 /** Organizational hierarchy for Admin/HR (and managers for their subtree). Must be before /:id. */
@@ -327,6 +621,16 @@ router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'upda
     country: pick(e.country, before.country),
     designation: pick(e.designation, before.designation),
     employment_type: pick(e.employmentType ?? e.employment_type, before.employment_type),
+    bio: e.bio !== undefined ? String(e.bio || '').trim() : String(before.bio || ''),
+    skills: e.skills !== undefined ? parseStringList(e.skills).slice(0, 40) : parseStringList(before.skills),
+    experience:
+      e.experience !== undefined
+        ? normalizeExperience(e.experience).slice(0, 20)
+        : normalizeExperience(before.experience),
+    qualifications:
+      e.qualifications !== undefined
+        ? normalizeQualifications(e.qualifications).slice(0, 20)
+        : normalizeQualifications(before.qualifications),
   };
 
   const me = await ensureAppUser(req);
@@ -341,6 +645,7 @@ router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'upda
        location=$8, state=$9, district=$10, country=$11,
        manager=$12, manager_user_id=$13, user_id=COALESCE($19, user_id),
        designation=COALESCE($14, designation), employment_type=COALESCE($15, employment_type),
+       bio=$20, skills=$21, experience=$22, qualifications=$23,
        updated_by=$16, updated_at=CURRENT_TIMESTAMP
      WHERE id=$17 AND tenant_id=$18`,
     [
@@ -363,6 +668,10 @@ router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'upda
       req.params.id,
       DEFAULT_TENANT,
       linkedUserId,
+      next.bio || null,
+      JSON.stringify(next.skills),
+      JSON.stringify(next.experience),
+      JSON.stringify(next.qualifications),
     ],
   );
 

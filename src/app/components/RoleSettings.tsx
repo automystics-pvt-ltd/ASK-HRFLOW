@@ -39,6 +39,7 @@ import {
 import { LeavePolicyPanel, CardsPanel } from './AdvancedHRPanels';
 import { LocationMasterPanel } from './LocationMasterPanel';
 import { OrgHierarchyPanel } from './OrgHierarchyPanel';
+import { SelfProfilePanel } from './SelfProfilePanel';
 import { CompanyLogo, LOGO_SIZE_PX, logoSizeKey } from './Brand';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -90,7 +91,7 @@ const SECTIONS_BY_ROLE: Record<Role, SectionId[]> = {
 };
 
 const SECTION_META: Record<SectionId, { label: string; description: string; icon: React.ElementType }> = {
-  account: { label: 'Account', description: 'Profile and password', icon: UserCircle },
+  account: { label: 'Account', description: 'Profile, photo, and password', icon: UserCircle },
   notifications: { label: 'Notifications', description: 'Alerts and digests', icon: Bell },
   company: { label: 'Company', description: 'Organization details', icon: Building2 },
   branding: { label: 'Branding', description: 'Logo and theme colors', icon: Palette },
@@ -197,89 +198,93 @@ function AccountPanel() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <Card className="border border-border rounded-xl">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <UserCircle className="w-5 h-5" />
-            Profile
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <div>
-            <p className="text-muted-foreground">Name</p>
-            <p className="font-medium">{user?.name}</p>
-          </div>
-          <div>
-            <p className="text-muted-foreground">Email</p>
-            <p className="font-medium">{user?.email}</p>
-          </div>
-          <div>
-            <p className="text-muted-foreground">Role</p>
-            <Badge variant="secondary">{roleLabels[role].label}</Badge>
-          </div>
-          <div>
-            <p className="text-muted-foreground">Department</p>
-            <p className="font-medium">{user?.department || '—'}</p>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Profile identity is managed by Admin/HR. Use Access Control or Employees to update directory details.
-          </p>
-        </CardContent>
-      </Card>
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card className="border border-border rounded-xl">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <UserCircle className="w-5 h-5" />
+              Directory identity
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div>
+              <p className="text-muted-foreground">Name</p>
+              <p className="font-medium">{user?.name}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Email</p>
+              <p className="font-medium">{user?.email}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Role</p>
+              <Badge variant="secondary">{roleLabels[role].label}</Badge>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Department</p>
+              <p className="font-medium">{user?.department || '—'}</p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Name, email, role, department, salary, and reporting manager are managed by Admin/HR only.
+            </p>
+          </CardContent>
+        </Card>
 
-      <Card className="border border-border rounded-xl">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <KeyRound className="w-5 h-5" />
-            Change password
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form className="space-y-3" onSubmit={(e) => void savePassword(e)}>
-            <div className="space-y-1.5">
-              <Label htmlFor="cur-pass">Current password</Label>
-              <Input
-                id="cur-pass"
-                type="password"
-                autoComplete="current-password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="new-pass">New password</Label>
-              <Input
-                id="new-pass"
-                type="password"
-                autoComplete="new-password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                required
-                minLength={8}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="confirm-pass">Confirm password</Label>
-              <Input
-                id="confirm-pass"
-                type="password"
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-                minLength={8}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">At least 8 characters with a letter and a number.</p>
-            <Button type="submit" disabled={busy}>
-              {busy ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-              Save password
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+        <Card className="border border-border rounded-xl">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <KeyRound className="w-5 h-5" />
+              Change password
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form className="space-y-3" onSubmit={(e) => void savePassword(e)}>
+              <div className="space-y-1.5">
+                <Label htmlFor="cur-pass">Current password</Label>
+                <Input
+                  id="cur-pass"
+                  type="password"
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="new-pass">New password</Label>
+                <Input
+                  id="new-pass"
+                  type="password"
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                  minLength={8}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="confirm-pass">Confirm password</Label>
+                <Input
+                  id="confirm-pass"
+                  type="password"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  minLength={8}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">At least 8 characters with a letter and a number.</p>
+              <Button type="submit" disabled={busy}>
+                {busy ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                Save password
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+
+      <SelfProfilePanel />
     </div>
   );
 }
@@ -379,7 +384,16 @@ export function RoleSettings({ onNavigate }: { onNavigate?: (tab: string) => voi
   const acc = useAccess();
   const branding = useBranding();
   const sections = useMemo(() => SECTIONS_BY_ROLE[role] ?? SECTIONS_BY_ROLE.employee, [role]);
-  const [tab, setTab] = useState<SectionId>(sections[0]);
+  const [tab, setTab] = useState<SectionId>(() => {
+    const wanted = sessionStorage.getItem('settings-section') as SectionId | null;
+    sessionStorage.removeItem('settings-section');
+    if (wanted && (SECTIONS_BY_ROLE[role] ?? []).includes(wanted)) return wanted;
+    return (SECTIONS_BY_ROLE[role] ?? SECTIONS_BY_ROLE.employee)[0];
+  });
+
+  useEffect(() => {
+    if (!sections.includes(tab)) setTab(sections[0]);
+  }, [sections, tab]);
 
   const [company, setCompany] = useState<BrandingCompany>({});
   const [theme, setTheme] = useState<BrandingTheme>({});
