@@ -231,27 +231,20 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
         {[
           { title: 'Total Employees', value: stats.totalEmployees, sub: `+${stats.newHires} new this month`, icon: Users },
           { title: 'Attendance Rate', value: `${stats.attendanceRate}%`, progress: stats.attendanceRate, icon: Clock },
-          ...(stats.monthlyPayroll != null
-            ? [
-                {
-                  title: 'Monthly Payroll',
-                  value: formatMoney(
-                    stats.monthlyPayroll,
-                    currencyByCode(stats.reportingCurrency) || reporting,
-                    { compact: stats.monthlyPayroll >= 100000 },
-                  ),
-                  sub: `${stats.pendingLeave} leave · ${stats.pendingClaims} claims pending`,
-                  icon: DollarSign,
-                },
-              ]
-            : [
-                {
-                  title: 'Pending Approvals',
-                  value: stats.pendingLeave + stats.pendingClaims,
-                  sub: `${stats.pendingLeave} leave · ${stats.pendingClaims} claims`,
-                  icon: CalendarDays,
-                },
-              ]),
+          {
+            title: 'Monthly Payroll',
+            value:
+              stats.monthlyPayroll == null
+                ? '—'
+                : formatMoney(stats.monthlyPayroll, currencyByCode(stats.reportingCurrency) || reporting, {
+                    compact: stats.monthlyPayroll >= 100000,
+                  }),
+            sub:
+              stats.monthlyPayroll == null
+                ? 'Confidential for your role'
+                : `${stats.pendingLeave} leave · ${stats.pendingClaims} claims pending`,
+            icon: DollarSign,
+          },
           {
             title: 'Present Today',
             value: stats.presentToday,

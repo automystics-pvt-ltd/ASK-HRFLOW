@@ -32,7 +32,7 @@ test.describe('Admin dashboard approvals', () => {
     await page.locator('#email').fill('alvi@automystics.com');
     await page.locator('#password').fill('demo123');
     await page.getByRole('button', { name: /^Sign in$/i }).click();
-    await expect(page.getByText('Pending Approvals', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: /Pending Approvals/i })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: /^Approve$/i }).first()).toBeVisible({ timeout: 10_000 });
 
     const before = await page.getByRole('button', { name: /^Approve$/i }).count();

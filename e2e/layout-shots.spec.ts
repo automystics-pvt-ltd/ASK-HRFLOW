@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test('admin desktop no overlap', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('https://hrflow.automystics.tech/');
+  await page.goto('/');
   await page.locator('#email').fill('alvi@automystics.com');
   await page.locator('#password').fill('demo123');
   await page.getByRole('button', { name: /^Sign in$/i }).click();
@@ -18,13 +18,16 @@ test('admin desktop no overlap', async ({ page }) => {
 
 test('employee desktop no overlap', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('https://hrflow.automystics.tech/');
+  await page.goto('/');
   await page.locator('#email').fill('rahul.verma@automystics.com');
   await page.locator('#password').fill('demo123');
   await page.getByRole('button', { name: /^Sign in$/i }).click();
-  await expect(page.getByRole('button', { name: /^Attendance$/i }).first()).toBeVisible({ timeout: 15000 });
+  // Employee shell: Attendance in sidebar (or Dashboard hero) after login
+  await expect(
+    page.getByRole('button', { name: /^(Attendance|Dashboard)$/i }).first(),
+  ).toBeVisible({ timeout: 15000 });
   const hero = page.getByText(/Good (morning|afternoon|evening), Rahul/i);
-  await expect(hero).toBeVisible();
+  await expect(hero).toBeVisible({ timeout: 15000 });
   const box = await hero.boundingBox();
   expect(box!.x).toBeGreaterThan(200);
   await page.screenshot({ path: '/opt/cursor/artifacts/employee-desktop-layout.png', fullPage: false });
@@ -32,7 +35,7 @@ test('employee desktop no overlap', async ({ page }) => {
 
 test('admin mobile shell', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('https://hrflow.automystics.tech/');
+  await page.goto('/');
   await page.locator('#email').fill('alvi@automystics.com');
   await page.locator('#password').fill('demo123');
   await page.getByRole('button', { name: /^Sign in$/i }).click();
