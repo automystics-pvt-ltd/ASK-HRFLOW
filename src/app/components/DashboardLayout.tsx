@@ -17,7 +17,6 @@ import {
   UserPlus,
   TrendingUp,
   Settings,
-  MessageCircle,
   Award,
   Bell,
   Search,
@@ -28,6 +27,7 @@ import {
   ScrollText,
   LogOut,
 } from 'lucide-react';
+import { FloatingAIChat } from './FloatingAIChat';
 
 interface DashboardLayoutProps {
   activeTab: string;
@@ -45,7 +45,6 @@ const menuItems = [
   { id: 'recruitment', label: 'Recruitment', icon: UserPlus },
   { id: 'performance', label: 'Performance', icon: TrendingUp },
   { id: 'engagement', label: 'Engagement', icon: Award },
-  { id: 'ai-assistant', label: 'AI Assistant', icon: MessageCircle },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'access', label: 'Access Control', icon: ShieldCheck },
   { id: 'audit', label: 'Audit Logs', icon: ScrollText },
@@ -131,7 +130,7 @@ export function DashboardLayout({ activeTab, setActiveTab, isDarkMode, toggleDar
   const [query, setQuery] = useState('');
   const visibleItems = menuItems.filter((m) => can(m.id, 'read'));
   const bottomItems = visibleItems
-    .filter((m) => ['dashboard', 'employees', 'attendance', 'payroll', 'ai-assistant', 'performance', 'settings'].includes(m.id))
+    .filter((m) => ['dashboard', 'employees', 'attendance', 'payroll', 'performance', 'settings'].includes(m.id))
     .slice(0, 5);
   const pageTitle = menuItems.find((m) => m.id === activeTab)?.label ?? 'Dashboard';
   const sidebarFrom = theme.primary || 'var(--sidebar-from, #061a52)';
@@ -335,6 +334,8 @@ export function DashboardLayout({ activeTab, setActiveTab, isDarkMode, toggleDar
           </ul>
         </nav>
       </div>
+
+      <FloatingAIChat currentModule={activeTab} />
     </div>
   );
 }
