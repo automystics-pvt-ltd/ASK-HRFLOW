@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { Search, Plus, Edit, MoreVertical, Mail, MapPin, Users, UserCheck, UserX, Building, Download, Upload } from 'lucide-react';
+import { LocationFields } from './LocationFields';
 
 export type EmployeeRecord = {
   id: number;
@@ -33,12 +34,17 @@ export type EmployeeRecord = {
   joinDate: string;
   salary: number;
   location: string;
+  state: string;
   country: string;
   avatar?: string;
   manager?: string;
   managerUserId?: string | null;
   skills?: string[];
 };
+
+function formatLocation(e: Pick<EmployeeRecord, 'location' | 'state' | 'country'>) {
+  return [e.location, e.state, e.country].filter(Boolean).join(', ');
+}
 
 /** Legacy type placeholder — list data comes from `/api/employees`. */
 export const mockEmployees: EmployeeRecord[] = [];
@@ -60,6 +66,7 @@ function mapRow(row: Record<string, unknown>): EmployeeRecord {
     joinDate: String(row.join_date ?? row.joinDate ?? '2020-01-01').slice(0, 10),
     salary: row.salary == null ? 0 : Number(row.salary),
     location: String(row.location ?? ''),
+    state: String(row.state ?? ''),
     country: String(row.country ?? 'United States'),
     avatar: row.avatar ? String(row.avatar) : undefined,
     manager: row.manager ? String(row.manager) : undefined,
@@ -91,6 +98,7 @@ export function EmployeeManagement() {
     salary: '',
     joinDate: new Date().toISOString().slice(0, 10),
     location: '',
+    state: '',
     country: 'United States',
     managerUserId: 'none',
   });
@@ -106,6 +114,7 @@ export function EmployeeManagement() {
     salary: '',
     status: 'Active',
     location: '',
+    state: '',
     country: 'United States',
     managerUserId: 'none',
   });
@@ -139,6 +148,7 @@ export function EmployeeManagement() {
       salary: String(employee.salary || ''),
       status: employee.status,
       location: employee.location,
+      state: employee.state || '',
       country: employee.country,
       managerUserId: employee.managerUserId || 'none',
     });
@@ -166,6 +176,7 @@ export function EmployeeManagement() {
         salary: Number(editForm.salary) || 0,
         status: editForm.status,
         location: editForm.location.trim() || null,
+        state: editForm.state.trim() || null,
         country: editForm.country,
         managerUserId: editForm.managerUserId === 'none' ? null : editForm.managerUserId,
         manager: mgr?.name ?? null,
@@ -197,6 +208,7 @@ export function EmployeeManagement() {
         salary: Number(addForm.salary) || 0,
         joinDate: addForm.joinDate,
         location: addForm.location.trim() || null,
+        state: addForm.state.trim() || null,
         country: addForm.country,
         status: 'Active',
         managerUserId: addForm.managerUserId === 'none' ? null : addForm.managerUserId,
@@ -213,6 +225,7 @@ export function EmployeeManagement() {
         salary: '',
         joinDate: new Date().toISOString().slice(0, 10),
         location: '',
+        state: '',
         country: 'United States',
         managerUserId: 'none',
       });
@@ -359,8 +372,13 @@ export function EmployeeManagement() {
                   <div className="space-y-2"><Label>Position</Label><Input value={addForm.position} onChange={(e) => setAddForm({ ...addForm, position: e.target.value })} placeholder="Job title" /></div>
                   <div className="space-y-2"><Label>Salary</Label><Input type="number" value={addForm.salary} onChange={(e) => setAddForm({ ...addForm, salary: e.target.value })} placeholder="0" /></div>
                   <div className="space-y-2"><Label>Start date</Label><Input type="date" value={addForm.joinDate} onChange={(e) => setAddForm({ ...addForm, joinDate: e.target.value })} /></div>
-                  <div className="space-y-2"><Label>Location</Label><Input value={addForm.location} onChange={(e) => setAddForm({ ...addForm, location: e.target.value })} placeholder="City" /></div>
-                  <div className="space-y-2"><Label>Country</Label><Input value={addForm.country} onChange={(e) => setAddForm({ ...addForm, country: e.target.value })} /></div>
+                  <LocationFields
+                    fullWidth
+                    value={{ country: addForm.country, state: addForm.state, city: addForm.location }}
+                    onChange={(loc) =>
+                      setAddForm({ ...addForm, country: loc.country, state: loc.state, location: loc.city })
+                    }
+                  />
                   <div className="space-y-2 md:col-span-2">
                     <Label>Reporting manager</Label>
                     <Select value={addForm.managerUserId} onValueChange={(v) => setAddForm({ ...addForm, managerUserId: v })}>
@@ -496,7 +514,7 @@ export function EmployeeManagement() {
                   <div className="space-y-2 text-sm text-muted-foreground">
                     <div className="flex items-center gap-2"><Building className="w-4 h-4" />{employee.department}</div>
                     <div className="flex items-center gap-2"><Mail className="w-4 h-4" />{employee.email}</div>
-                    <div className="flex items-center gap-2"><MapPin className="w-4 h-4" />{employee.location}</div>
+                    <div className="flex items-center gap-2"><MapPin className="w-4 h-4" />{formatLocation(employee) || '—'}</div>
                   </div>
                 </CardContent>
               </Card>
@@ -533,8 +551,14 @@ export function EmployeeManagement() {
                     <SelectContent>{statuses.slice(1).map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2"><Label>Location</Label><Input value={editForm.location} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} disabled={!can.canEditEmployee} /></div>
-                <div className="space-y-2"><Label>Country</Label><Input value={editForm.country} onChange={(e) => setEditForm({ ...editForm, country: e.target.value })} disabled={!can.canEditEmployee} /></div>
+                <LocationFields
+                  fullWidth
+                  disabled={!can.canEditEmployee}
+                  value={{ country: editForm.country, state: editForm.state, city: editForm.location }}
+                  onChange={(loc) =>
+                    setEditForm({ ...editForm, country: loc.country, state: loc.state, location: loc.city })
+                  }
+                />
                 <div className="space-y-2 md:col-span-2">
                   <Label>Reporting manager</Label>
                   <Select

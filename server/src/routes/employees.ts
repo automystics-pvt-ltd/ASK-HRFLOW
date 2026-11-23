@@ -28,6 +28,7 @@ function mapEmployee(row: Record<string, unknown>, hideSalary: boolean) {
     joinDate: join,
     join_date: join,
     location: row.location,
+    state: row.state ?? '',
     country: row.country,
     avatar: row.avatar,
     manager: row.manager,
@@ -105,8 +106,8 @@ router.post('/', requireAuth, attachUser, requirePermission('employees', 'create
   if (dup) return res.status(409).json({ error: 'Employee with this email already exists' });
 
   const id = await insert(
-    `INSERT INTO employees (tenant_id, user_id, name, email, phone, department, position, status, join_date, salary, location, country, avatar, manager, skills, manager_user_id, designation, employment_type)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+    `INSERT INTO employees (tenant_id, user_id, name, email, phone, department, position, status, join_date, salary, location, state, country, avatar, manager, skills, manager_user_id, designation, employment_type)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
     [
       DEFAULT_TENANT,
       e.userId ?? null,
@@ -118,7 +119,8 @@ router.post('/', requireAuth, attachUser, requirePermission('employees', 'create
       e.status ?? 'Active',
       e.joinDate ?? e.join_date ?? new Date().toISOString().slice(0, 10),
       e.salary ?? 0,
-      e.location ?? null,
+      e.location ?? e.city ?? null,
+      e.state ?? null,
       e.country ?? null,
       e.avatar ?? null,
       e.manager ?? null,
@@ -148,11 +150,11 @@ router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'upda
   const managerName = e.manager !== undefined ? e.manager : null;
 
   await query(
-    `UPDATE employees SET name=$1, email=$2, phone=$3, department=$4, position=$5, status=$6, salary=$7, location=$8, country=$9,
-       manager=CASE WHEN $16 = 1 THEN $10 ELSE manager END,
-       manager_user_id=CASE WHEN $16 = 1 THEN $11 ELSE manager_user_id END,
-       designation=COALESCE($12, designation), employment_type=COALESCE($13, employment_type)
-     WHERE id=$14 AND tenant_id=$15`,
+    `UPDATE employees SET name=$1, email=$2, phone=$3, department=$4, position=$5, status=$6, salary=$7, location=$8, state=$9, country=$10,
+       manager=CASE WHEN $17 = 1 THEN $11 ELSE manager END,
+       manager_user_id=CASE WHEN $17 = 1 THEN $12 ELSE manager_user_id END,
+       designation=COALESCE($13, designation), employment_type=COALESCE($14, employment_type)
+     WHERE id=$15 AND tenant_id=$16`,
     [
       e.name,
       email,
@@ -161,7 +163,8 @@ router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'upda
       e.position,
       e.status,
       e.salary,
-      e.location,
+      e.location ?? e.city ?? null,
+      e.state ?? null,
       e.country,
       managerName,
       managerUserId,
