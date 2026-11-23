@@ -10,6 +10,9 @@ import { requirePermission } from '../middleware/rbac.js';
 import { userCan } from '../lib/users.js';
 import { getEmployeeManagerUserId, teamUserIds } from '../lib/team.js';
 import { createApprovalRequest } from './approvals.js';
+import { createNotice, notifyUserIds, activeUsersByRoles } from '../lib/notices-helper.js';
+import { writeAudit } from '../lib/audit.js';
+import { ensureAppUser } from '../middleware/rbac.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadsDir = path.join(__dirname, '..', '..', 'uploads', 'receipts');
@@ -159,10 +162,12 @@ router.post('/', requireAuth, requirePermission('attendance', 'create'), upload.
     return res.status(400).json({ error: 'categoryId, amount, expenseDate and description required' });
   }
 
-  const cat = await queryOne<{ require_receipt: number; max_amount: string | number | null; active: number }>(
-    'SELECT * FROM expense_categories WHERE id = $1 AND tenant_id = $2',
-    [categoryId, DEFAULT_TENANT],
-  );
+  const cat = await queryOne<{
+    name: string;
+    require_receipt: number;
+    max_amount: string | number | null;
+    active: number;
+  }>('SELECT * FROM expense_categories WHERE id = $1 AND tenant_id = $2', [categoryId, DEFAULT_TENANT]);
   if (!cat || !Number(cat.active)) return res.status(400).json({ error: 'Invalid category' });
   if (Number(cat.require_receipt) && !req.file) {
     return res.status(400).json({ error: 'Receipt is required for this category' });
@@ -207,13 +212,34 @@ router.post('/', requireAuth, requirePermission('attendance', 'create'), upload.
       entityType: 'expense_claim',
       entityId: id,
       requesterId: req.user!.sub,
-      payload: { amount, categoryId, expenseDate, description },
+      payload: {
+        amount,
+        categoryId,
+        expenseDate,
+        description,
+        categoryName: cat.name,
+        preferredApproverUserId: managerId ?? undefined,
+      },
       preferredApproverRole: managerId ? 'manager' : 'hr',
       preferredApproverUserId: managerId ?? undefined,
     });
   } catch {
     /* optional */
   }
+
+  const requester = await queryOne<{ name: string }>('SELECT name FROM users WHERE id = $1', [req.user!.sub]);
+  const catName = String(cat.name || 'Expense');
+  const body = `${requester?.name ?? 'Employee'} submitted a ${catName} claim of ${amount} on ${expenseDate}: ${description}`;
+  const recipients: string[] = [];
+  if (managerId) recipients.push(managerId);
+  else {
+    const hrs = await activeUsersByRoles(['hr', 'admin']);
+    recipients.push(...hrs.map((u) => u.id));
+  }
+  // Also alert Admin for tracking visibility (deduped by user)
+  const admins = await activeUsersByRoles(['admin']);
+  recipients.push(...admins.map((u) => u.id));
+  await notifyUserIds(recipients, 'Expense claim pending', body, 'claim', `n-clreq-${id}`);
 
   res.status(201).json({ id });
 });
@@ -232,6 +258,15 @@ router.post('/:id/action', requireAuth, requirePermission('attendance', 'approve
     DEFAULT_TENANT,
   ]);
   if (!claim) return res.status(404).json({ error: 'Not found' });
+  if (String(claim.status) !== 'pending' && action !== 'pay') {
+    return res.status(400).json({ error: 'Claim already decided' });
+  }
+  if (action === 'pay' && String(claim.status) !== 'approved' && String(claim.status) !== 'paid') {
+    return res.status(400).json({ error: 'Only approved claims can be marked paid' });
+  }
+  if (claim.user_id === req.user!.sub) {
+    return res.status(403).json({ error: 'Cannot approve your own claim' });
+  }
 
   if (req.user!.role === 'manager') {
     const team = await teamUserIds(req.user!.sub);
@@ -273,6 +308,28 @@ router.post('/:id/action', requireAuth, requirePermission('attendance', 'approve
       String(claim.id),
     ],
   );
+
+  const actor = await queryOne<{ name: string }>('SELECT name FROM users WHERE id = $1', [req.user!.sub]);
+  const statusLabel =
+    action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : action === 'pay' ? 'marked paid' : 'needs clarification';
+  await createNotice({
+    userId: String(claim.user_id),
+    title: `Expense claim ${statusLabel}`,
+    body: `Your claim #${claim.id} (${claim.amount}) was ${statusLabel} by ${actor?.name ?? 'approver'}. Comment: ${String(comment).trim()}`,
+    kind: 'claim',
+    id: `n-cldec-${claim.id}-${action}`.slice(0, 32),
+  });
+
+  const me = await ensureAppUser(req);
+  if (me) {
+    await writeAudit(
+      me.id,
+      me.name,
+      'Claim decision',
+      `${statusLabel} claim #${claim.id}: ${String(comment).trim()}`,
+      String(claim.id),
+    );
+  }
 
   res.json({ ok: true });
 });

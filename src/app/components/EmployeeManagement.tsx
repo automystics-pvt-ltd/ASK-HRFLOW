@@ -35,6 +35,7 @@ export type EmployeeRecord = {
   salary: number;
   location: string;
   state: string;
+  district: string;
   country: string;
   avatar?: string;
   manager?: string;
@@ -42,8 +43,8 @@ export type EmployeeRecord = {
   skills?: string[];
 };
 
-function formatLocation(e: Pick<EmployeeRecord, 'location' | 'state' | 'country'>) {
-  return [e.location, e.state, e.country].filter(Boolean).join(', ');
+function formatLocation(e: Pick<EmployeeRecord, 'location' | 'district' | 'state' | 'country'>) {
+  return [e.location, e.district, e.state, e.country].filter(Boolean).join(', ');
 }
 
 /** Legacy type placeholder — list data comes from `/api/employees`. */
@@ -67,6 +68,7 @@ function mapRow(row: Record<string, unknown>): EmployeeRecord {
     salary: row.salary == null ? 0 : Number(row.salary),
     location: String(row.location ?? ''),
     state: String(row.state ?? ''),
+    district: String(row.district ?? ''),
     country: String(row.country ?? 'United States'),
     avatar: row.avatar ? String(row.avatar) : undefined,
     manager: row.manager ? String(row.manager) : undefined,
@@ -99,7 +101,8 @@ export function EmployeeManagement() {
     joinDate: new Date().toISOString().slice(0, 10),
     location: '',
     state: '',
-    country: 'United States',
+    district: '',
+    country: 'India',
     managerUserId: 'none',
   });
   const [addBusy, setAddBusy] = useState(false);
@@ -115,7 +118,8 @@ export function EmployeeManagement() {
     status: 'Active',
     location: '',
     state: '',
-    country: 'United States',
+    district: '',
+    country: 'India',
     managerUserId: 'none',
   });
 
@@ -149,6 +153,7 @@ export function EmployeeManagement() {
       status: employee.status,
       location: employee.location,
       state: employee.state || '',
+      district: employee.district || '',
       country: employee.country,
       managerUserId: employee.managerUserId || 'none',
     });
@@ -177,6 +182,7 @@ export function EmployeeManagement() {
         status: editForm.status,
         location: editForm.location.trim() || null,
         state: editForm.state.trim() || null,
+        district: editForm.district.trim() || null,
         country: editForm.country,
         managerUserId: editForm.managerUserId === 'none' ? null : editForm.managerUserId,
         manager: mgr?.name ?? null,
@@ -209,6 +215,7 @@ export function EmployeeManagement() {
         joinDate: addForm.joinDate,
         location: addForm.location.trim() || null,
         state: addForm.state.trim() || null,
+        district: addForm.district.trim() || null,
         country: addForm.country,
         status: 'Active',
         managerUserId: addForm.managerUserId === 'none' ? null : addForm.managerUserId,
@@ -226,7 +233,8 @@ export function EmployeeManagement() {
         joinDate: new Date().toISOString().slice(0, 10),
         location: '',
         state: '',
-        country: 'United States',
+        district: '',
+        country: 'India',
         managerUserId: 'none',
       });
       await reloadEmployees();
@@ -301,7 +309,7 @@ export function EmployeeManagement() {
             joinDate: new Date().toISOString().slice(0, 10),
             salary: 0,
             location: '',
-            country: 'United States',
+            country: 'India',
           });
           created += 1;
         } catch {
@@ -374,9 +382,20 @@ export function EmployeeManagement() {
                   <div className="space-y-2"><Label>Start date</Label><Input type="date" value={addForm.joinDate} onChange={(e) => setAddForm({ ...addForm, joinDate: e.target.value })} /></div>
                   <LocationFields
                     fullWidth
-                    value={{ country: addForm.country, state: addForm.state, city: addForm.location }}
+                    value={{
+                      country: addForm.country,
+                      state: addForm.state,
+                      district: addForm.district,
+                      city: addForm.location,
+                    }}
                     onChange={(loc) =>
-                      setAddForm({ ...addForm, country: loc.country, state: loc.state, location: loc.city })
+                      setAddForm({
+                        ...addForm,
+                        country: loc.country,
+                        state: loc.state,
+                        district: loc.district,
+                        location: loc.city,
+                      })
                     }
                   />
                   <div className="space-y-2 md:col-span-2">
@@ -554,9 +573,20 @@ export function EmployeeManagement() {
                 <LocationFields
                   fullWidth
                   disabled={!can.canEditEmployee}
-                  value={{ country: editForm.country, state: editForm.state, city: editForm.location }}
+                  value={{
+                    country: editForm.country,
+                    state: editForm.state,
+                    district: editForm.district,
+                    city: editForm.location,
+                  }}
                   onChange={(loc) =>
-                    setEditForm({ ...editForm, country: loc.country, state: loc.state, location: loc.city })
+                    setEditForm({
+                      ...editForm,
+                      country: loc.country,
+                      state: loc.state,
+                      district: loc.district,
+                      location: loc.city,
+                    })
                   }
                 />
                 <div className="space-y-2 md:col-span-2">

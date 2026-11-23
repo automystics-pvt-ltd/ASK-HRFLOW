@@ -19,6 +19,7 @@ const PLACEHOLDERS = [
   '{{relieving_date}}',
   '{{company_name}}',
   '{{company_address}}',
+  '{{company_logo}}',
   '{{today}}',
 ];
 
@@ -171,6 +172,37 @@ async function getCompany() {
   };
 }
 
+async function getLogoHtml() {
+  const [logoRow, themeRow] = await Promise.all([
+    queryOne<{ value: unknown }>(
+      'SELECT value FROM organization_settings WHERE tenant_id = $1 AND `key` = $2',
+      [DEFAULT_TENANT, 'logoPath'],
+    ),
+    queryOne<{ value: unknown }>(
+      'SELECT value FROM organization_settings WHERE tenant_id = $1 AND `key` = $2',
+      [DEFAULT_TENANT, 'theme'],
+    ),
+  ]);
+  let logoPath: string | null = null;
+  if (logoRow?.value != null) {
+    logoPath = typeof logoRow.value === 'string' ? logoRow.value.replace(/^"|"$/g, '') : String(logoRow.value);
+    if (logoPath === 'null' || !logoPath) logoPath = null;
+  }
+  let logoSize = 'md';
+  if (themeRow?.value) {
+    try {
+      const theme =
+        typeof themeRow.value === 'string' ? JSON.parse(themeRow.value) : (themeRow.value as { logoSize?: string });
+      if (theme?.logoSize && ['sm', 'md', 'lg', 'xl'].includes(theme.logoSize)) logoSize = theme.logoSize;
+    } catch {
+      /* ignore */
+    }
+  }
+  const height = logoSize === 'sm' ? 28 : logoSize === 'lg' ? 48 : logoSize === 'xl' ? 64 : 36;
+  if (!logoPath) return '';
+  return `<img src="/api/branding/logo-file" alt="Company logo" style="max-height:${height}px;width:auto;height:auto;object-fit:contain;" />`;
+}
+
 function fillTemplate(html: string, fields: Record<string, string>) {
   let out = html;
   for (const [key, val] of Object.entries(fields)) {
@@ -198,7 +230,17 @@ router.get('/templates/:id', requireAuth, requirePermission('settings', 'read'),
   res.json({ template: mapTemplate(row as Record<string, unknown>) });
 });
 
-router.post('/templates', requireAuth, requirePermission('settings', 'update'), async (req, res) => {
+async function canManageTemplates(userId: string, role: string) {
+  return (
+    (await userCan(userId, role, 'settings', 'update')) ||
+    (await userCan(userId, role, 'employees', 'update'))
+  );
+}
+
+router.post('/templates', requireAuth, async (req, res) => {
+  if (!(await canManageTemplates(req.user!.sub, req.user!.role))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const { docType, name, description, bodyHtml, mandatoryFields, headerHtml, footerHtml, signatoryName, signatoryTitle } =
     req.body || {};
   if (!docType || !name || !bodyHtml) return res.status(400).json({ error: 'docType, name, bodyHtml required' });
@@ -226,7 +268,10 @@ router.post('/templates', requireAuth, requirePermission('settings', 'update'), 
   res.status(201).json({ id });
 });
 
-router.put('/templates/:id', requireAuth, requirePermission('settings', 'update'), async (req, res) => {
+router.put('/templates/:id', requireAuth, async (req, res) => {
+  if (!(await canManageTemplates(req.user!.sub, req.user!.role))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const row = await queryOne('SELECT * FROM document_templates WHERE id = $1 AND tenant_id = $2', [
     req.params.id,
     DEFAULT_TENANT,
@@ -260,7 +305,10 @@ router.put('/templates/:id', requireAuth, requirePermission('settings', 'update'
   res.json({ ok: true });
 });
 
-router.post('/templates/:id/activate', requireAuth, requirePermission('settings', 'update'), async (req, res) => {
+router.post('/templates/:id/activate', requireAuth, async (req, res) => {
+  if (!(await canManageTemplates(req.user!.sub, req.user!.role))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const active = req.body?.active === false ? 0 : 1;
   const result = await query('UPDATE document_templates SET active = $1 WHERE id = $2 AND tenant_id = $3', [
     active,
@@ -304,6 +352,7 @@ router.post('/generate', requireAuth, requirePermission('employees', 'create'), 
   if (!tmpl) return res.status(404).json({ error: 'No active template for this document type' });
 
   const company = await getCompany();
+  const companyLogo = await getLogoHtml();
   const extra = (fields && typeof fields === 'object' ? fields : {}) as Record<string, string>;
   const values: Record<string, string> = {
     employee_name: emp.name,
@@ -316,6 +365,7 @@ router.post('/generate', requireAuth, requirePermission('employees', 'create'), 
     relieving_date: '',
     company_name: company.name,
     company_address: company.address,
+    company_logo: companyLogo,
     today: isoDate(new Date()),
     ...Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, String(v ?? '')])),
   };
@@ -325,7 +375,7 @@ router.post('/generate', requireAuth, requirePermission('employees', 'create'), 
     if (!values[m]?.trim()) return res.status(400).json({ error: `Missing mandatory field: ${m}` });
   }
 
-  const header = tmpl.header_html ? String(tmpl.header_html) : '';
+  const header = tmpl.header_html ? String(tmpl.header_html) : companyLogo ? '{{company_logo}}' : '';
   const footer = tmpl.footer_html ? String(tmpl.footer_html) : '';
   const body = fillTemplate(`${header}${tmpl.body_html}${footer}`, values);
   const id = uuid().slice(0, 12);

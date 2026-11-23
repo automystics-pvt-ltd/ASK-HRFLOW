@@ -35,17 +35,14 @@ async function overlaps(userId: string, start: string, end: string, excludeId?: 
 }
 
 async function notifyLeaveDecision(userId: string, leaveId: number | string, status: string, comment: string) {
-  await query(
-    `INSERT INTO notices (id, tenant_id, user_id, title, body, kind, read_by)
-     VALUES ($1,$2,$3,$4,$5,'approval','[]')`,
-    [
-      `n-leave-${leaveId}-${Date.now()}`.slice(0, 32),
-      DEFAULT_TENANT,
-      userId,
-      `Leave ${status}`,
-      `Your leave request #${leaveId} was ${status}. Reason: ${comment}`,
-    ],
-  );
+  const { createNotice } = await import('../lib/notices-helper.js');
+  await createNotice({
+    userId,
+    title: `Leave ${status}`,
+    body: `Your leave request #${leaveId} was ${status}. Reason: ${comment}`,
+    kind: 'leave',
+    id: `n-lvdec-${leaveId}-${status}`.slice(0, 32),
+  });
 }
 
 router.get('/policy-settings', requireAuth, async (_req, res) => {
@@ -399,37 +396,32 @@ router.post('/', requireAuth, requirePermission('attendance', 'create'), async (
     // Approval tables may not be migrated yet — leave request still succeeds
   }
 
-  // Notify manager or HR fallback
+  // Notify reporting manager (preferred), else HR; always CC admins for tracking (deduped).
+  const { notifyUserIds, activeUsersByRoles } = await import('../lib/notices-helper.js');
   const mgr = await getEmployeeManagerUserId(req.user!.sub);
-  const notifyId =
-    mgr ||
-    (
-      await queryOne<{ id: string }>(
-        `SELECT id FROM users WHERE tenant_id = $1 AND role IN ('hr','admin') AND active = 1 ORDER BY role DESC LIMIT 1`,
-        [DEFAULT_TENANT],
-      )
-    )?.id;
-  if (notifyId) {
-    await query(
-      `INSERT INTO notices (id, tenant_id, user_id, title, body, kind, read_by)
-       VALUES ($1,$2,$3,$4,$5,'approval','[]')`,
-      [
-        `n-lvreq-${id}`.slice(0, 32),
-        DEFAULT_TENANT,
-        notifyId,
-        'Leave request pending',
-        `${user?.name ?? 'Employee'} requested ${dayCount} day(s) of ${type} (${startDate} → ${endDate}).`,
-      ],
-    );
+  const recipients: string[] = [];
+  if (mgr) recipients.push(mgr);
+  else {
+    const hrs = await activeUsersByRoles(['hr']);
+    recipients.push(...hrs.map((u) => u.id));
   }
+  const admins = await activeUsersByRoles(['admin']);
+  recipients.push(...admins.map((u) => u.id));
+  await notifyUserIds(
+    recipients,
+    'Leave request pending',
+    `${user?.name ?? 'Employee'} requested ${dayCount} day(s) of ${type} (${startDate} → ${endDate}). Reason: ${reason || '—'}`,
+    'leave',
+    `n-lvreq-${id}`,
+  );
 
   res.status(201).json({ id, days: dayCount, approvalRequestId });
 });
 
 router.post('/:id/approve', requireAuth, requirePermission('attendance', 'approve'), async (req, res) => {
   const { approve, comment } = req.body || {};
-  const settings = await getLeavePolicySettings();
-  if (settings.requireApprovalComment && (!comment || !String(comment).trim())) {
+  // Comments are always mandatory for leave decisions (manager + admin override)
+  if (!comment || !String(comment).trim()) {
     return res.status(400).json({ error: 'Approval/rejection reason is mandatory' });
   }
 
@@ -441,9 +433,12 @@ router.post('/:id/approve', requireAuth, requirePermission('attendance', 'approv
   if (row.status !== 'Pending') return res.status(400).json({ error: 'Request already decided' });
   if (row.user_id === req.user!.sub) return res.status(403).json({ error: 'Cannot approve your own leave' });
 
+  // Managers: own team only. Admin/HR: org-wide override when managers fail to act.
   if (req.user!.role === 'manager') {
     const ok = await isManagerOf(req.user!.sub, String(row.user_id));
     if (!ok) return res.status(403).json({ error: 'Not your team member' });
+  } else if (req.user!.role !== 'admin' && req.user!.role !== 'hr') {
+    return res.status(403).json({ error: 'Forbidden' });
   }
 
   const reviewer = await queryOne<{ name: string }>('SELECT name FROM users WHERE id = $1', [req.user!.sub]);
@@ -465,13 +460,23 @@ router.post('/:id/approve', requireAuth, requirePermission('attendance', 'approv
     );
   }
 
-  await query(
-    `UPDATE approval_requests
-     SET status = $1, updated_at = NOW()
-     WHERE tenant_id = $2 AND module_key = 'leave' AND entity_type = 'leave_request'
-       AND entity_id = $3 AND status = 'pending'`,
-    [approve ? 'approved' : 'rejected', DEFAULT_TENANT, String(req.params.id)],
+  const ar = await queryOne<{ id: number; current_step: number }>(
+    `SELECT id, current_step FROM approval_requests
+     WHERE tenant_id = $1 AND module_key = 'leave' AND entity_type = 'leave_request'
+       AND entity_id = $2 AND status = 'pending' LIMIT 1`,
+    [DEFAULT_TENANT, String(req.params.id)],
   );
+  if (ar) {
+    await query(
+      `INSERT INTO approval_actions (request_id, step_order, actor_id, action, comment)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [ar.id, ar.current_step, req.user!.sub, approve ? 'approve' : 'reject', reasonText],
+    );
+    await query(`UPDATE approval_requests SET status = $1, updated_at = NOW() WHERE id = $2`, [
+      approve ? 'approved' : 'rejected',
+      ar.id,
+    ]);
+  }
 
   await notifyLeaveDecision(String(row.user_id), req.params.id, status, reasonText || status);
 

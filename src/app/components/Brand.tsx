@@ -2,6 +2,20 @@ import React from 'react';
 import wordmarkDark from '../../assets/automystics-wordmark-dark.svg';
 import wordmarkLight from '../../assets/automystics-wordmark-light.svg';
 import { useBranding } from '../lib/branding';
+import type { BrandingTheme } from '../lib/api';
+
+/** Logo display sizes (height). Width scales with original aspect ratio. */
+export const LOGO_SIZE_PX: Record<NonNullable<BrandingTheme['logoSize']>, number> = {
+  sm: 28,
+  md: 36,
+  lg: 48,
+  xl: 64,
+};
+
+export function logoSizeKey(theme?: BrandingTheme | null): NonNullable<BrandingTheme['logoSize']> {
+  const s = theme?.logoSize;
+  return s === 'sm' || s === 'md' || s === 'lg' || s === 'xl' ? s : 'md';
+}
 
 /**
  * Transparent Automystics logo that adapts to its surface.
@@ -9,19 +23,42 @@ import { useBranding } from '../lib/branding';
  * onDark: always the light-text version (navy sidebar).
  * otherwise: dark text in light mode, light text in dark mode.
  */
-export function CompanyLogo({ onDark = false, className = '' }: { onDark?: boolean; className?: string }) {
-  const { logoUrl, company } = useBranding();
+export function CompanyLogo({
+  onDark = false,
+  className = '',
+  size,
+}: {
+  onDark?: boolean;
+  className?: string;
+  /** Override theme logoSize */
+  size?: NonNullable<BrandingTheme['logoSize']>;
+}) {
+  const { logoUrl, company, theme } = useBranding();
   const alt = company.legalName || company.name || 'Automystics Technologies Private Limited';
+  const key = size || logoSizeKey(theme);
+  const maxH = LOGO_SIZE_PX[key];
 
   if (logoUrl) {
-    return <img src={logoUrl} alt={alt} className={`h-auto max-h-full w-auto object-contain ${className}`} />;
+    return (
+      <img
+        src={logoUrl}
+        alt={alt}
+        className={`h-auto w-auto object-contain ${className}`}
+        style={{ maxHeight: maxH }}
+      />
+    );
   }
 
-  if (onDark) return <img src={wordmarkLight} alt={alt} className={`h-auto ${className}`} />;
+  if (onDark) return <img src={wordmarkLight} alt={alt} className={`h-auto ${className}`} style={{ maxHeight: maxH }} />;
   return (
     <>
-      <img src={wordmarkDark} alt={alt} className={`h-auto dark:hidden ${className}`} />
-      <img src={wordmarkLight} alt={alt} className={`h-auto hidden dark:block ${className}`} />
+      <img src={wordmarkDark} alt={alt} className={`h-auto dark:hidden ${className}`} style={{ maxHeight: maxH }} />
+      <img
+        src={wordmarkLight}
+        alt={alt}
+        className={`h-auto hidden dark:block ${className}`}
+        style={{ maxHeight: maxH }}
+      />
     </>
   );
 }
@@ -32,27 +69,32 @@ export function CompanyLogo({ onDark = false, className = '' }: { onDark?: boole
  * No logo: default Automystics wordmark + product label.
  */
 export function BrandLockup({ onDark = false }: { onDark?: boolean }) {
-  const { company, logoUrl } = useBranding();
+  const { company, logoUrl, theme } = useBranding();
   const companyName = company.name || 'Automystics';
   const nameClass = onDark ? 'text-white' : 'text-foreground';
   const mutedClass = onDark ? 'text-[#9db3e6]' : 'text-muted-foreground';
   const alt = company.legalName || companyName;
+  const key = logoSizeKey(theme);
+  const maxH = LOGO_SIZE_PX[key];
+  const wellH = Math.max(maxH + 12, 40);
+  const wellMaxW = Math.round(maxH * 3.2);
 
   if (logoUrl) {
     return (
       <div className="flex items-center gap-3 min-w-0" data-brand="custom-logo">
-        {/* Flexible logo well: height-fixed, width grows with aspect ratio */}
         <div
           className={[
-            'shrink-0 h-12 max-w-[8rem] min-w-[2.75rem] px-1.5 rounded-xl',
+            'shrink-0 min-w-[2.75rem] px-1.5 rounded-xl',
             'flex items-center justify-center overflow-hidden',
             onDark ? 'bg-white/10' : 'bg-muted/60 ring-1 ring-border/50',
           ].join(' ')}
+          style={{ height: wellH, maxWidth: wellMaxW }}
         >
           <img
             src={logoUrl}
             alt={alt}
-            className="max-h-9 max-w-[7rem] w-auto h-auto object-contain"
+            className="w-auto h-auto object-contain"
+            style={{ maxHeight: maxH, maxWidth: wellMaxW - 12 }}
           />
         </div>
         <div className="min-w-0 flex-1 leading-tight">

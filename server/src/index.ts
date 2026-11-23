@@ -23,6 +23,9 @@ import claimsRoutes from './routes/claims.js';
 import activityRoutes from './routes/activity.js';
 import cardsRoutes from './routes/cards.js';
 import aiRoutes from './routes/ai.js';
+import locationsRoutes from './routes/locations.js';
+import searchRoutes from './routes/search.js';
+import preferencesRoutes from './routes/preferences.js';
 import { runLeaveAutoApprove } from './lib/leave-auto-approve.js';
 import {
   payrollRouter,
@@ -65,6 +68,9 @@ app.use('/api/claims', claimsRoutes);
 app.use('/api/activity', activityRoutes);
 app.use('/api/cards', cardsRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/locations', locationsRoutes);
+app.use('/api/search', searchRoutes);
+app.use('/api/preferences', preferencesRoutes);
 app.use('/api/payroll', payrollRouter);
 app.use('/api/recruitment', recruitmentRouter);
 app.use('/api/performance', performanceRouter);
