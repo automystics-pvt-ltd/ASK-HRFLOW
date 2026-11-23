@@ -242,7 +242,7 @@ export function DashboardLayout({ activeTab, setActiveTab, isDarkMode, toggleDar
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 ml-auto">
-              <div className="hidden xs:flex sm:flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5">
                 <Sun className="w-4 h-4 hidden sm:block" />
                 <Switch checked={isDarkMode} onCheckedChange={toggleDarkMode} aria-label="Toggle dark mode" />
                 <Moon className="w-4 h-4 hidden sm:block" />

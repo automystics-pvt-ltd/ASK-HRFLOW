@@ -350,7 +350,7 @@ export function EmployeeManagement() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div><h1 className="text-2xl font-medium">Employee Management</h1><p className="text-muted-foreground">Manage your team members and their information</p></div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
           {can.canAddEmployee && (
             <>
               <input
@@ -377,7 +377,7 @@ export function EmployeeManagement() {
           {can.canAddEmployee && (
             <Dialog open={isAddEmployeeOpen} onOpenChange={setIsAddEmployeeOpen}>
               <DialogTrigger asChild><Button className="gap-2"><Plus className="w-4 h-4" />Add Employee</Button></DialogTrigger>
-              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogContent className="w-full max-w-[calc(100%-2rem)] sm:max-w-2xl max-h-[90dvh] overflow-y-auto">
                 <DialogHeader><DialogTitle>Add New Employee</DialogTitle></DialogHeader>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
                   <div className="space-y-2 md:col-span-2"><Label>Full name</Label><Input value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} placeholder="Full name" /></div>
@@ -556,7 +556,7 @@ export function EmployeeManagement() {
       </Tabs>
 
       <Dialog open={!!selectedEmployee} onOpenChange={(open) => !open && setSelectedEmployee(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-full max-w-[calc(100%-2rem)] sm:max-w-2xl max-h-[90dvh] overflow-y-auto">
           {selectedEmployee && (
             <>
               <DialogHeader><DialogTitle>Edit {selectedEmployee.name}</DialogTitle></DialogHeader>

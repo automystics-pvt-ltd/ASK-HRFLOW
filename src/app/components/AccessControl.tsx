@@ -67,19 +67,19 @@ export function AccessControl() {
 
       <Tabs defaultValue="users" className="space-y-6">
         <TabsList className="flex-wrap h-auto">
-          <TabsTrigger value="users">Users</TabsTrigger>
-          <TabsTrigger value="user-perms">User permissions</TabsTrigger>
-          <TabsTrigger value="roles">Role templates</TabsTrigger>
-          {a.role === 'admin' && <TabsTrigger value="security">Password & demo access</TabsTrigger>}
-          <TabsTrigger value="history">Access history</TabsTrigger>
+          <TabsTrigger value="users" className="shrink-0">Users</TabsTrigger>
+          <TabsTrigger value="user-perms" className="shrink-0">User permissions</TabsTrigger>
+          <TabsTrigger value="roles" className="shrink-0">Role templates</TabsTrigger>
+          {a.role === 'admin' && <TabsTrigger value="security" className="shrink-0">Password & demo access</TabsTrigger>}
+          <TabsTrigger value="history" className="shrink-0">Access history</TabsTrigger>
         </TabsList>
 
         {/* USERS */}
         <TabsContent value="users">
           <Card className="rounded-xl"><CardContent className="p-0 overflow-x-auto">
-            <table className="w-full text-sm min-w-[720px]">
-              <thead className="bg-muted/50 text-left"><tr>
-                {['User', 'Role', 'Department', 'Last login', 'Status'].map((h) => <th key={h} className="p-3 font-medium">{h}</th>)}
+            <table className="w-full text-sm min-w-[640px]">
+              <thead className="bg-muted/80 text-left sticky top-0 z-10"><tr>
+                {['User', 'Role', 'Department', 'Last login', 'Status'].map((h) => <th key={h} className="p-3 font-medium whitespace-nowrap">{h}</th>)}
               </tr></thead>
               <tbody>
                 {a.users.map((u) => (
@@ -111,9 +111,9 @@ export function AccessControl() {
           <Card className="rounded-xl">
             <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <CardTitle>Individual permissions</CardTitle>
-              <div className="flex gap-2 items-center">
+              <div className="flex flex-wrap gap-2 items-center w-full sm:w-auto">
                 <Select value={selected.id} onValueChange={setSelectedId}>
-                  <SelectTrigger className="w-56" aria-label="Select user"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-full sm:w-56" aria-label="Select user"><SelectValue /></SelectTrigger>
                   <SelectContent>{a.users.map((u) => <SelectItem key={u.id} value={u.id}>{u.name} · {roleLabels[u.role].label}</SelectItem>)}</SelectContent>
                 </Select>
                 <Button variant="outline" size="sm" className="gap-1" disabled={!canUpdate || selected.role === 'admin' || !selected.permissions}
