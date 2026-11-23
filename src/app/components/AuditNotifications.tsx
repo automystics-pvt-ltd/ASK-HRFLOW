@@ -62,16 +62,28 @@ export function AuditLogs() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fmt = (iso: string, _display?: string) =>
-    new Date(iso).toLocaleString('en-IN', {
-      timeZone: timezone,
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    });
+  const fmtParts = (iso: string) => {
+    const d = new Date(iso);
+    return {
+      date: d.toLocaleDateString('en-IN', {
+        timeZone: timezone,
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      }),
+      time: d.toLocaleTimeString('en-IN', {
+        timeZone: timezone,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      }),
+    };
+  };
+
+  const fmt = (iso: string) => {
+    const { date, time } = fmtParts(iso);
+    return `${date}, ${time}`;
+  };
 
   const fmtFull = (iso: string) =>
     new Date(iso).toLocaleString('en-IN', {
@@ -141,18 +153,24 @@ export function AuditLogs() {
             Search & filters
           </CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-3">
-          <div className="relative sm:col-span-2 xl:col-span-2">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="pl-9"
-              placeholder="Search event, actor, detail…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') load();
-              }}
-            />
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-3 items-end">
+          <div className="space-y-1 sm:col-span-2 xl:col-span-2 min-w-0">
+            <Label className="text-xs" htmlFor="audit-search">
+              Search
+            </Label>
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <Input
+                id="audit-search"
+                className="pl-9"
+                placeholder="Search event, actor, detail…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') load();
+                }}
+              />
+            </div>
           </div>
           <div className="space-y-1 min-w-0">
             <Label className="text-xs">Module</Label>
@@ -255,85 +273,101 @@ export function AuditLogs() {
                 ))}
               </div>
 
-              {/* Desktop table */}
+              {/* Desktop table — auto layout so timestamps never collide with Actor */}
               <div className="hidden lg:block overflow-x-auto max-h-[min(70vh,720px)] overflow-y-auto">
-                <table className="w-full text-sm table-fixed min-w-[880px]">
-                  <thead className="bg-muted/80 text-left sticky top-0 z-10 backdrop-blur-sm">
-                    <tr>
-                      <th className="p-3 font-medium w-[9.5rem]">Time</th>
-                      <th className="p-3 font-medium w-[8.5rem]">Actor</th>
-                      <th className="p-3 font-medium w-[7rem]">Module</th>
-                      <th className="p-3 font-medium w-[9rem]">Event</th>
-                      <th className="p-3 font-medium">Detail</th>
-                      <th className="p-3 font-medium w-[5.5rem] text-center">Changes</th>
+                <table className="w-full text-sm border-collapse min-w-[960px]">
+                  <colgroup>
+                    <col className="w-[11rem]" />
+                    <col className="w-[9rem]" />
+                    <col className="w-[7.5rem]" />
+                    <col className="w-[8.5rem]" />
+                    <col />
+                    <col className="w-[6.5rem]" />
+                  </colgroup>
+                  <thead className="bg-muted/90 text-left sticky top-0 z-10 backdrop-blur-sm">
+                    <tr className="border-b border-border">
+                      <th className="px-4 py-3 font-medium text-muted-foreground">Time</th>
+                      <th className="px-4 py-3 font-medium text-muted-foreground">Actor</th>
+                      <th className="px-4 py-3 font-medium text-muted-foreground">Module</th>
+                      <th className="px-4 py-3 font-medium text-muted-foreground">Event</th>
+                      <th className="px-4 py-3 font-medium text-muted-foreground">Detail</th>
+                      <th className="px-4 py-3 font-medium text-muted-foreground">Changes</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((e) => (
-                      <React.Fragment key={e.id}>
-                        <tr className="border-t border-border hover:bg-muted/20 align-top">
-                          <td className="p-3 whitespace-nowrap text-muted-foreground tabular-nums" title={fmtFull(e.ts)}>
-                            {fmt(e.ts)}
-                          </td>
-                          <td className="p-3 font-medium truncate" title={e.actorName}>
-                            {e.actorName}
-                          </td>
-                          <td className="p-3">
-                            {e.moduleKey ? (
-                              <Badge variant="outline" className="max-w-full truncate">
-                                {e.moduleKey}
-                              </Badge>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                          <td className="p-3">
-                            <Badge variant="secondary" className="max-w-full whitespace-normal text-left">
-                              {e.event}
-                            </Badge>
-                          </td>
-                          <td className="p-3 text-muted-foreground">
-                            <p className="line-clamp-2 break-words" title={e.detail}>
-                              {e.detail || '—'}
-                            </p>
-                          </td>
-                          <td className="p-3 text-center">
-                            {e.before != null || e.after != null ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-8"
-                                onClick={() => setExpanded(expanded === e.id ? null : e.id)}
-                              >
-                                {expanded === e.id ? 'Hide' : 'View'}
-                              </Button>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </td>
-                        </tr>
-                        {expanded === e.id && (
-                          <tr className="border-t border-border bg-muted/30">
-                            <td colSpan={6} className="p-4">
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
-                                <div className="min-w-0">
-                                  <p className="font-sans font-medium mb-1">Previous values</p>
-                                  <pre className="whitespace-pre-wrap break-all rounded-md border bg-background/60 p-2">
-                                    {e.before ? JSON.stringify(e.before, null, 2) : '—'}
-                                  </pre>
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="font-sans font-medium mb-1">Updated values</p>
-                                  <pre className="whitespace-pre-wrap break-all rounded-md border bg-background/60 p-2">
-                                    {e.after ? JSON.stringify(e.after, null, 2) : '—'}
-                                  </pre>
-                                </div>
+                    {rows.map((e) => {
+                      const parts = fmtParts(e.ts);
+                      return (
+                        <React.Fragment key={e.id}>
+                          <tr className="border-b border-border/70 hover:bg-muted/20 align-middle">
+                            <td className="px-4 py-3 text-muted-foreground" title={fmtFull(e.ts)}>
+                              <div className="leading-tight whitespace-nowrap">
+                                <div className="tabular-nums text-foreground/80">{parts.date}</div>
+                                <div className="text-xs tabular-nums">{parts.time}</div>
                               </div>
                             </td>
+                            <td className="px-4 py-3 font-medium">
+                              <span className="block max-w-[9rem] truncate" title={e.actorName}>
+                                {e.actorName}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              {e.moduleKey ? (
+                                <Badge variant="outline" className="max-w-[7rem] truncate font-normal">
+                                  {e.moduleKey}
+                                </Badge>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              <Badge variant="secondary" className="font-normal">
+                                {e.event}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground min-w-[12rem]">
+                              <p className="line-clamp-2 break-words leading-snug" title={e.detail}>
+                                {e.detail || '—'}
+                              </p>
+                            </td>
+                            <td className="px-4 py-3">
+                              {e.before != null || e.after != null ? (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 px-2"
+                                  onClick={() => setExpanded(expanded === e.id ? null : e.id)}
+                                >
+                                  {expanded === e.id ? 'Hide' : 'View'}
+                                </Button>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
                           </tr>
-                        )}
-                      </React.Fragment>
-                    ))}
+                          {expanded === e.id && (
+                            <tr className="border-b border-border bg-muted/30">
+                              <td colSpan={6} className="px-4 py-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
+                                  <div className="min-w-0">
+                                    <p className="font-sans font-medium mb-1">Previous values</p>
+                                    <pre className="whitespace-pre-wrap break-all rounded-md border bg-background/60 p-2">
+                                      {e.before ? JSON.stringify(e.before, null, 2) : '—'}
+                                    </pre>
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="font-sans font-medium mb-1">Updated values</p>
+                                    <pre className="whitespace-pre-wrap break-all rounded-md border bg-background/60 p-2">
+                                      {e.after ? JSON.stringify(e.after, null, 2) : '—'}
+                                    </pre>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
