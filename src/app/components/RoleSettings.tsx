@@ -38,6 +38,8 @@ import {
 } from '../lib/api';
 import { LeavePolicyPanel, CardsPanel } from './AdvancedHRPanels';
 import { LocationMasterPanel } from './LocationMasterPanel';
+import { OrgHierarchyPanel } from './OrgHierarchyPanel';
+import { CompanyLogo, LOGO_SIZE_PX, logoSizeKey } from './Brand';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -63,13 +65,15 @@ type SectionId =
   | 'payroll'
   | 'security'
   | 'team'
-  | 'people';
+  | 'people'
+  | 'hierarchy';
 
 const SECTIONS_BY_ROLE: Record<Role, SectionId[]> = {
   admin: [
     'company',
     'branding',
     'locations',
+    'hierarchy',
     'leave',
     'holidays',
     'payroll',
@@ -80,7 +84,7 @@ const SECTIONS_BY_ROLE: Record<Role, SectionId[]> = {
     'notifications',
     'account',
   ],
-  hr: ['people', 'leave', 'holidays', 'hr-templates', 'documents', 'payroll', 'notifications', 'account'],
+  hr: ['people', 'hierarchy', 'leave', 'holidays', 'hr-templates', 'documents', 'payroll', 'notifications', 'account'],
   manager: ['team', 'approvals', 'notifications', 'account'],
   employee: ['account', 'notifications'],
 };
@@ -100,6 +104,7 @@ const SECTION_META: Record<SectionId, { label: string; description: string; icon
   security: { label: 'Security & access', description: 'Users, roles, audit', icon: KeyRound },
   team: { label: 'Team', description: 'Manager team preferences', icon: Users },
   people: { label: 'People', description: 'Employees, onboarding, recruitment', icon: Users },
+  hierarchy: { label: 'Hierarchy', description: 'Reporting structure and approval history', icon: Users },
 };
 
 function ExpenseCategoriesAdmin({ canEdit }: { canEdit: boolean }) {
@@ -408,6 +413,7 @@ export function RoleSettings({ onNavigate }: { onNavigate?: (tab: string) => voi
   const visibleSections = useMemo(() => {
     return sections.filter((id) => {
       if (id === 'company' || id === 'branding' || id === 'locations' || id === 'security') return canManageOrg;
+      if (id === 'hierarchy') return canManageDocs && (role === 'admin' || role === 'hr');
       if (id === 'leave' || id === 'holidays') return acc.can('attendance', 'read');
       if (id === 'documents' || id === 'people') return canManageDocs || acc.can('recruitment', 'read');
       if (id === 'hr-templates') return canSeeTemplates;
@@ -588,12 +594,12 @@ export function RoleSettings({ onNavigate }: { onNavigate?: (tab: string) => voi
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 max-w-xl">
-                <div className="flex items-center gap-4">
-                  {branding.logoUrl ? (
-                    <img src={branding.logoUrl} alt="Logo" className="h-12 max-w-[160px] object-contain" />
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No custom logo</p>
-                  )}
+                <div className="flex items-center gap-4 p-3 rounded-lg border border-border/60 bg-muted/30">
+                  <CompanyLogo size={logoSizeKey(theme)} />
+                  <div className="text-xs text-muted-foreground">
+                    Preview at {logoSizeKey(theme).toUpperCase()} ({LOGO_SIZE_PX[logoSizeKey(theme)]}px height).
+                    Width scales with the original aspect ratio.
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Input
@@ -624,6 +630,26 @@ export function RoleSettings({ onNavigate }: { onNavigate?: (tab: string) => voi
                       <Trash2 className="w-4 h-4" /> Remove
                     </Button>
                   )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Logo display size</Label>
+                  <Select
+                    value={logoSizeKey(theme)}
+                    onValueChange={(v) => setTheme({ ...theme, logoSize: v as BrandingTheme['logoSize'] })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sm">Small</SelectItem>
+                      <SelectItem value="md">Medium</SelectItem>
+                      <SelectItem value="lg">Large</SelectItem>
+                      <SelectItem value="xl">Extra large</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Applies on login, sidebar headers, settings preview, and documents that use the brand logo.
+                  </p>
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   {(['primary', 'secondary', 'accent'] as const).map((key) => (
@@ -669,6 +695,10 @@ export function RoleSettings({ onNavigate }: { onNavigate?: (tab: string) => voi
               </CardContent>
             </Card>
           ) : null}
+        </TabsContent>
+
+        <TabsContent value="hierarchy" className="space-y-4">
+          {(role === 'admin' || role === 'hr') && <OrgHierarchyPanel />}
         </TabsContent>
 
         <TabsContent value="locations" className="space-y-4">

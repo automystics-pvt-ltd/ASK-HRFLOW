@@ -174,6 +174,10 @@ export function ManagerDashboard({ go }: { go: (t: string) => void }) {
   const [pending, setPending] = useState(0);
   const [teamReport, setTeamReport] = useState<Record<string, unknown>[]>([]);
   const [inbox, setInbox] = useState<Record<string, unknown>[]>([]);
+  const [teamDash, setTeamDash] = useState<{
+    summary: { teamSize: number; working: number; onLeave: number; absent: number; pendingRequests: number };
+    members: Record<string, unknown>[];
+  } | null>(null);
   const [reasonTarget, setReasonTarget] = useState<{ id: number; action: 'approve' | 'reject' } | null>(null);
 
   const load = () => {
@@ -188,11 +192,22 @@ export function ManagerDashboard({ go }: { go: (t: string) => void }) {
       .report()
       .then(({ report }) => setTeamReport(report ?? []))
       .catch(() => {});
+    void activityApi
+      .teamDashboard()
+      .then((d) => setTeamDash({ summary: d.summary, members: d.members ?? [] }))
+      .catch(() => {});
   };
   useEffect(load, []);
 
   const decide = (id: number, action: 'approve' | 'reject') => {
     setReasonTarget({ id, action });
+  };
+
+  const statusBadge = (s: string) => {
+    if (s === 'working') return <Badge className="bg-emerald-600/90">Working</Badge>;
+    if (s === 'on_leave') return <Badge variant="secondary">On leave</Badge>;
+    if (s === 'absent') return <Badge variant="outline">Absent</Badge>;
+    return <Badge variant="outline">—</Badge>;
   };
 
   return (
@@ -203,7 +218,7 @@ export function ManagerDashboard({ go }: { go: (t: string) => void }) {
           <>
             <Chip>
               <Users className="w-3.5 h-3.5" />
-              {teamReport.length} reports
+              {teamDash?.summary.teamSize ?? teamReport.length} reports
             </Chip>
             <Chip>
               <ClipboardList className="w-3.5 h-3.5" />
@@ -212,14 +227,12 @@ export function ManagerDashboard({ go }: { go: (t: string) => void }) {
           </>
         }
       />
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Stat label="Team size" value={String(teamReport.length)} icon={Users} />
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        <Stat label="Team size" value={String(teamDash?.summary.teamSize ?? teamReport.length)} icon={Users} />
+        <Stat label="Working today" value={String(teamDash?.summary.working ?? '—')} icon={CheckCircle2} />
+        <Stat label="On leave" value={String(teamDash?.summary.onLeave ?? '—')} icon={CalendarDays} />
+        <Stat label="Absent" value={String(teamDash?.summary.absent ?? '—')} icon={Clock} />
         <Stat label="Pending approvals" value={String(pending)} icon={ClipboardList} hint="Leave & claims" />
-        <Stat
-          label="Leave remaining (team)"
-          value={String(teamReport.reduce((s, r) => s + Number(r.leaveRemaining ?? 0), 0))}
-          icon={CalendarDays}
-        />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className={card}>
@@ -228,24 +241,33 @@ export function ManagerDashboard({ go }: { go: (t: string) => void }) {
           </CardHeader>
           <CardContent className="space-y-3">
             {inbox.length === 0 && <p className="text-sm text-muted-foreground">No pending items.</p>}
-            {inbox.map((item) => (
-              <div key={String(item.id)} className="flex flex-wrap items-center justify-between gap-2 border rounded-lg p-3">
-                <div>
-                  <p className="text-sm font-medium">
-                    {String(item.requesterName)} · {String(item.typeLabel || item.moduleKey)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{String(item.stepLabel || '')}</p>
+            {inbox.map((item) => {
+              const payload = (item.payload || {}) as Record<string, unknown>;
+              const detail =
+                item.moduleKey === 'claim'
+                  ? `Amount ${payload.amount ?? '—'} · ${String(payload.expenseDate || '')} · ${String(payload.description || payload.categoryName || '')}`
+                  : item.moduleKey === 'leave'
+                    ? `${String(payload.type || 'Leave')} · ${String(payload.days ?? '')} day(s) · ${String(payload.startDate || '')} → ${String(payload.endDate || '')} · ${String(payload.reason || '')}`
+                    : String(item.stepLabel || '');
+              return (
+                <div key={String(item.id)} className="flex flex-wrap items-center justify-between gap-2 border rounded-lg p-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">
+                      {String(item.requesterName)} · {String(item.typeLabel || item.moduleKey)}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">{detail}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => void decide(Number(item.id), 'reject')}>
+                      Reject
+                    </Button>
+                    <Button size="sm" onClick={() => void decide(Number(item.id), 'approve')}>
+                      Approve
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => void decide(Number(item.id), 'reject')}>
-                    Reject
-                  </Button>
-                  <Button size="sm" onClick={() => void decide(Number(item.id), 'approve')}>
-                    Approve
-                  </Button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
             <Button variant="outline" className="w-full" onClick={() => go('attendance')}>
               Open attendance & claims
             </Button>
@@ -253,21 +275,62 @@ export function ManagerDashboard({ go }: { go: (t: string) => void }) {
         </Card>
         <Card className={card}>
           <CardHeader>
-            <CardTitle className="text-base">Team leave summary</CardTitle>
+            <CardTitle className="text-base">Team availability today</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
-            {teamReport.length === 0 && <p className="text-sm text-muted-foreground">No team members assigned.</p>}
-            {teamReport.map((r) => (
-              <div key={String(r.userId ?? r.employeeId)} className="flex justify-between text-sm border-b py-2">
-                <span>{String(r.name)}</span>
-                <span className="text-muted-foreground">
-                  Rem {Number(r.leaveRemaining)} · Pend {Number(r.pendingLeave)}
-                </span>
+          <CardContent className="space-y-2 max-h-[22rem] overflow-y-auto">
+            {(teamDash?.members ?? []).length === 0 && (
+              <p className="text-sm text-muted-foreground">No team members assigned.</p>
+            )}
+            {(teamDash?.members ?? []).map((r) => (
+              <div key={String(r.userId ?? r.employeeId)} className="border-b py-2 space-y-1">
+                <div className="flex justify-between gap-2 text-sm items-center">
+                  <span className="font-medium">{String(r.name)}</span>
+                  {statusBadge(String(r.todayStatus || ''))}
+                </div>
+                {r.leaveToday ? (
+                  <p className="text-xs text-muted-foreground">
+                    Leave: {String((r.leaveToday as Record<string, unknown>).type)} ·{' '}
+                    {String((r.leaveToday as Record<string, unknown>).reason || '—')}
+                  </p>
+                ) : null}
+                {Array.isArray(r.upcomingLeaves) && (r.upcomingLeaves as Record<string, unknown>[]).length > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Upcoming:{' '}
+                    {(r.upcomingLeaves as Record<string, unknown>[])
+                      .slice(0, 2)
+                      .map(
+                        (l) =>
+                          `${String(l.type)} ${String(l.startDate)} (${String(l.status)})`,
+                      )
+                      .join(' · ')}
+                  </p>
+                ) : null}
+                {Array.isArray(r.pendingLeaves) && (r.pendingLeaves as unknown[]).length > 0 ? (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    {(r.pendingLeaves as unknown[]).length} pending leave request(s)
+                  </p>
+                ) : null}
               </div>
             ))}
           </CardContent>
         </Card>
       </div>
+      <Card className={card}>
+        <CardHeader>
+          <CardTitle className="text-base">Team leave balances</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {teamReport.length === 0 && <p className="text-sm text-muted-foreground">No team members assigned.</p>}
+          {teamReport.map((r) => (
+            <div key={String(r.userId ?? r.employeeId)} className="flex justify-between text-sm border-b py-2">
+              <span>{String(r.name)}</span>
+              <span className="text-muted-foreground">
+                Rem {Number(r.leaveRemaining)} · Pend {Number(r.pendingLeave)}
+              </span>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
       <ApprovalReasonDialog
         open={Boolean(reasonTarget)}
         title={reasonTarget?.action === 'approve' ? 'Approval reason' : 'Rejection reason'}

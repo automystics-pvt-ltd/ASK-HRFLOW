@@ -134,6 +134,8 @@ export const employeesApi = {
   update: (id: string | number, payload: Record<string, unknown>) =>
     api<{ ok: boolean }>(`/api/employees/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   remove: (id: string | number) => api<{ ok: boolean }>(`/api/employees/${id}`, { method: 'DELETE' }),
+  hierarchy: () =>
+    api<{ employees: Record<string, unknown>[]; tree: Record<string, unknown>[] }>('/api/employees/hierarchy'),
 };
 
 export const leaveApi = {
@@ -235,6 +237,18 @@ export const activityApi = {
       `/api/activity/report${qs ? `?${qs}` : ''}`,
     );
   },
+  teamDashboard: () =>
+    api<{
+      today: string;
+      summary: {
+        teamSize: number;
+        working: number;
+        onLeave: number;
+        absent: number;
+        pendingRequests: number;
+      };
+      members: Record<string, unknown>[];
+    }>('/api/activity/team-dashboard'),
 };
 
 export const cardsApi = {
@@ -451,6 +465,7 @@ export type BrandingTheme = {
   secondary?: string;
   accent?: string;
   mode?: 'system' | 'light' | 'dark';
+  logoSize?: 'sm' | 'md' | 'lg' | 'xl';
 };
 
 export const brandingApi = {
@@ -659,4 +674,12 @@ export const approvalsApi = {
     }),
   runAutoApprove: () =>
     api<{ processed: number; approved: number; skipped: number }>('/api/approvals/run-auto-approve'),
+  history: (params?: { userId?: string; moduleKey?: string; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.userId) q.set('userId', params.userId);
+    if (params?.moduleKey) q.set('moduleKey', params.moduleKey);
+    if (params?.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return api<{ history: Record<string, unknown>[] }>(`/api/approvals/history${qs ? `?${qs}` : ''}`);
+  },
 };

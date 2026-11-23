@@ -23,6 +23,7 @@ const defaults: BrandingState = {
     secondary: '#0a2a7a',
     accent: '#1d6bff',
     mode: 'system',
+    logoSize: 'md',
   },
   logoUrl: null,
   loading: true,

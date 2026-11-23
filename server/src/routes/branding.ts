@@ -38,7 +38,11 @@ const DEFAULT_THEME = {
   secondary: '#0a2a7a',
   accent: '#1d6bff',
   mode: 'system' as 'system' | 'light' | 'dark',
+  /** Display height in rem for uploaded logos (sidebar/login/docs). Width scales with aspect ratio. */
+  logoSize: 'md' as 'sm' | 'md' | 'lg' | 'xl',
 };
+
+const LOGO_SIZES = new Set(['sm', 'md', 'lg', 'xl']);
 
 function parseJson<T>(val: unknown, fallback: T): T {
   if (val == null) return fallback;
@@ -117,13 +121,16 @@ router.put('/company', requireAuth, requirePermission('settings', 'update'), asy
 
 router.put('/theme', requireAuth, requirePermission('settings', 'update'), async (req, res) => {
   const body = req.body || {};
-  const current = parseJson(await getSetting('theme'), DEFAULT_THEME);
+  const current = parseJson(await getSetting('theme'), DEFAULT_THEME) as typeof DEFAULT_THEME;
   const mode = body.mode === 'light' || body.mode === 'dark' || body.mode === 'system' ? body.mode : current.mode;
+  const logoSizeRaw = String(body.logoSize ?? current.logoSize ?? DEFAULT_THEME.logoSize);
+  const logoSize = LOGO_SIZES.has(logoSizeRaw) ? (logoSizeRaw as typeof DEFAULT_THEME.logoSize) : DEFAULT_THEME.logoSize;
   const next = {
     primary: String(body.primary ?? current.primary ?? DEFAULT_THEME.primary),
     secondary: String(body.secondary ?? current.secondary ?? DEFAULT_THEME.secondary),
     accent: String(body.accent ?? current.accent ?? DEFAULT_THEME.accent),
     mode,
+    logoSize,
   };
   await setSetting('theme', next);
   res.json({ theme: next });
