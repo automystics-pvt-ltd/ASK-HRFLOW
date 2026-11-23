@@ -47,20 +47,16 @@ router.get('/stats', requireAuth, requirePermission('dashboard', 'read'), async 
     [DEFAULT_TENANT],
   );
 
-  const [att] = await query<{ rate: number | string }>(
-    `SELECT CASE WHEN COUNT(*) = 0 THEN 0
-            ELSE ROUND(100.0 * SUM(CASE WHEN status IN ('Present','In Progress') THEN 1 ELSE 0 END) / COUNT(*), 1) END AS rate
-     FROM attendance_days
-     WHERE tenant_id = $1 AND work_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)`,
-    [DEFAULT_TENANT],
-  );
-
-  // Monthly payroll = sum of (annual salary / 12) for active employees in scope — amounts in company currency
-  const [payroll] = await query<{ monthly: number | string }>(
-    `SELECT COALESCE(SUM(CASE WHEN status = 'Active' THEN salary / 12 ELSE 0 END), 0) AS monthly
-     FROM employees WHERE ${empWhere}`,
-    empParams,
-  );
+  // Payroll aggregates are confidential — Admin/HR see team/company totals; employees see own; managers never.
+  let monthlyPayroll: number | null = null;
+  if (role === 'admin' || role === 'hr' || role === 'employee') {
+    const [payroll] = await query<{ monthly: number | string }>(
+      `SELECT COALESCE(SUM(CASE WHEN status = 'Active' THEN salary / 12 ELSE 0 END), 0) AS monthly
+       FROM employees WHERE ${empWhere}`,
+      empParams,
+    );
+    monthlyPayroll = Math.round(Number(payroll?.monthly ?? 0));
+  }
 
   const hireFilters = [...empFilters, 'join_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)'];
   const [newHires] = await query<{ c: number | string }>(
@@ -68,21 +64,69 @@ router.get('/stats', requireAuth, requirePermission('dashboard', 'read'), async 
     empParams,
   );
 
-  const [presentToday] = await query<{ c: number | string }>(
-    `SELECT COUNT(*) AS c FROM attendance_days
-     WHERE tenant_id = $1 AND work_date = CURDATE() AND status IN ('Present','In Progress')`,
-    [DEFAULT_TENANT],
-  );
+  // Scope attendance KPIs for managers to their reports
+  let presentSql = `SELECT COUNT(*) AS c FROM attendance_days ad
+    WHERE ad.tenant_id = $1 AND ad.work_date = CURDATE() AND ad.status IN ('Present','In Progress')`;
+  const presentParams: unknown[] = [DEFAULT_TENANT];
+  let attSql = `SELECT CASE WHEN COUNT(*) = 0 THEN 0
+            ELSE ROUND(100.0 * SUM(CASE WHEN status IN ('Present','In Progress') THEN 1 ELSE 0 END) / COUNT(*), 1) END AS rate
+     FROM attendance_days
+     WHERE tenant_id = $1 AND work_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)`;
+  const attParams: unknown[] = [DEFAULT_TENANT];
+  if (role === 'manager') {
+    presentSql = `SELECT COUNT(*) AS c FROM attendance_days ad
+      JOIN employees e ON e.user_id = ad.user_id AND e.tenant_id = ad.tenant_id
+      WHERE ad.tenant_id = $1 AND ad.work_date = CURDATE() AND ad.status IN ('Present','In Progress')
+        AND e.manager_user_id = $2`;
+    presentParams.push(userId);
+    attSql = `SELECT CASE WHEN COUNT(*) = 0 THEN 0
+            ELSE ROUND(100.0 * SUM(CASE WHEN ad.status IN ('Present','In Progress') THEN 1 ELSE 0 END) / COUNT(*), 1) END AS rate
+     FROM attendance_days ad
+     JOIN employees e ON e.user_id = ad.user_id AND e.tenant_id = ad.tenant_id
+     WHERE ad.tenant_id = $1 AND ad.work_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+       AND e.manager_user_id = $2`;
+    attParams.push(userId);
+  } else if (role === 'employee') {
+    presentSql += ` AND ad.user_id = $2`;
+    presentParams.push(userId);
+    attSql += ` AND user_id = $2`;
+    attParams.push(userId);
+  }
 
-  const [pendingClaims] = await query<{ c: number | string }>(
-    `SELECT COUNT(*) AS c FROM expense_claims WHERE tenant_id = $1 AND status IN ('pending','submitted')`,
-    [DEFAULT_TENANT],
-  ).catch(() => [{ c: 0 }]);
+  const [presentToday] = await query<{ c: number | string }>(presentSql, presentParams);
+  const [attScoped] = await query<{ rate: number | string }>(attSql, attParams);
 
-  const [pendingApprovals] = await query<{ c: number | string }>(
-    `SELECT COUNT(*) AS c FROM approval_requests WHERE tenant_id = $1 AND status = 'pending'`,
-    [DEFAULT_TENANT],
-  ).catch(() => [{ c: 0 }]);
+  let claimsSql = `SELECT COUNT(*) AS c FROM expense_claims WHERE tenant_id = $1 AND status IN ('pending','submitted')`;
+  const claimsParams: unknown[] = [DEFAULT_TENANT];
+  if (role === 'manager') {
+    claimsSql = `SELECT COUNT(*) AS c FROM expense_claims ec
+      JOIN employees e ON e.user_id = ec.user_id AND e.tenant_id = ec.tenant_id
+      WHERE ec.tenant_id = $1 AND ec.status IN ('pending','submitted') AND e.manager_user_id = $2`;
+    claimsParams.push(userId);
+  } else if (role === 'employee') {
+    claimsSql += ` AND user_id = $2`;
+    claimsParams.push(userId);
+  }
+  const [pendingClaims] = await query<{ c: number | string }>(claimsSql, claimsParams).catch(() => [{ c: 0 }]);
+
+  let approvalsSql = `SELECT COUNT(*) AS c FROM approval_requests WHERE tenant_id = $1 AND status = 'pending'`;
+  const approvalsParams: unknown[] = [DEFAULT_TENANT];
+  if (role === 'manager') {
+    approvalsSql = `SELECT COUNT(*) AS c FROM approval_requests ar
+      JOIN approval_steps s ON s.workflow_id = ar.workflow_id AND s.step_order = ar.current_step
+      WHERE ar.tenant_id = $1 AND ar.status = 'pending'
+        AND (
+          (s.approver_user_id IS NOT NULL AND s.approver_user_id = $2)
+          OR (s.approver_user_id IS NULL AND s.approver_role = 'manager')
+        )`;
+    approvalsParams.push(userId);
+  } else if (role === 'employee') {
+    approvalsSql += ` AND requester_id = $2`;
+    approvalsParams.push(userId);
+  }
+  const [pendingApprovals] = await query<{ c: number | string }>(approvalsSql, approvalsParams).catch(() => [
+    { c: 0 },
+  ]);
 
   const currency = await getReportingCurrency();
 
@@ -93,8 +137,8 @@ router.get('/stats', requireAuth, requirePermission('dashboard', 'read'), async 
       onLeave: Number(emp?.on_leave ?? 0),
       pendingLeave: Number(leave?.pending ?? 0),
       pendingTimesheets: Number(ts?.pending ?? 0),
-      attendanceRate: Number(att?.rate ?? 0),
-      monthlyPayroll: Math.round(Number(payroll?.monthly ?? 0)),
+      attendanceRate: Number(attScoped?.rate ?? 0),
+      monthlyPayroll,
       newHires: Number(newHires?.c ?? 0),
       presentToday: Number(presentToday?.c ?? 0),
       pendingClaims: Number(pendingClaims?.c ?? 0),

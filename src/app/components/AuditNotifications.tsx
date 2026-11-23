@@ -257,7 +257,16 @@ export function AuditLogs() {
   );
 }
 
-const icons = { approval: CheckCircle, access: ShieldCheck, announcement: Megaphone, alert: AlertTriangle };
+const icons: Record<string, typeof CheckCircle> = {
+  approval: CheckCircle,
+  access: ShieldCheck,
+  announcement: Megaphone,
+  alert: AlertTriangle,
+  leave: CheckCircle,
+  claim: AlertTriangle,
+  system: Megaphone,
+  attendance: CheckCircle,
+};
 
 export function NotificationsPage() {
   const { notices, user, markRead, unread } = useAccess();
@@ -351,7 +360,7 @@ export function NotificationsPage() {
       ) : (
         <div className="space-y-3">
           {notices.map((n) => {
-            const Icon = icons[n.kind];
+            const Icon = icons[n.kind] || Bell;
             const isRead = n.read.includes(user?.id ?? '');
             return (
               <Card key={n.id} className={`rounded-xl ${isRead ? '' : 'border-primary/40 bg-primary/5'}`}>

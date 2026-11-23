@@ -1,7 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import { DEFAULT_TENANT, query, queryOne } from '../db.js';
 
-export type NoticeKind = 'approval' | 'leave' | 'claim' | 'announcement' | 'system';
+export type NoticeKind = 'approval' | 'leave' | 'claim' | 'announcement' | 'system' | 'attendance';
 
 /** Create a notice for one user. Uses a stable id when provided to prevent duplicates. */
 export async function createNotice(opts: {

@@ -106,7 +106,15 @@ export interface AuditEntry {
   after?: unknown;
   timezone?: string;
 }
-export interface Notice { id: string; ts: string; userId: string | 'all'; title: string; body: string; read: string[]; kind: 'approval' | 'access' | 'announcement' | 'alert' }
+export interface Notice {
+  id: string;
+  ts: string;
+  userId: string | 'all';
+  title: string;
+  body: string;
+  read: string[];
+  kind: 'approval' | 'access' | 'announcement' | 'alert' | 'leave' | 'claim' | 'system' | 'attendance';
+}
 
 const seedNotices: Notice[] = [
   { id: 'n1', ts: new Date(Date.now() - 3600e3).toISOString(), userId: 'all', title: 'Company holiday', body: 'Offices are closed on the upcoming public holiday.', read: [], kind: 'announcement' },

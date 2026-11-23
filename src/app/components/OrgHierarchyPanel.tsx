@@ -77,18 +77,28 @@ export function OrgHierarchyPanel() {
 
   const managers = flat.filter((e) => e.userId && (e.role === 'manager' || e.role === 'admin' || e.role === 'hr'));
 
+  const onSelectEmployee = (id: string) => {
+    setSelectedId(id);
+    const emp = flat.find((e) => String(e.id) === id);
+    const current = emp?.managerUserId && managers.some((m) => m.userId === emp.managerUserId)
+      ? emp.managerUserId
+      : emp?.managerUserId || 'none';
+    setManagerUserId(current === emp?.userId ? 'none' : current || 'none');
+  };
+
   const saveManager = async () => {
     if (!selectedId) return;
+    const emp = flat.find((e) => String(e.id) === selectedId);
+    if (!emp) return;
+    if (managerUserId !== 'none' && managerUserId === emp.userId) {
+      toast.error('An employee cannot report to themselves');
+      return;
+    }
     setSaving(true);
     try {
-      const emp = flat.find((e) => String(e.id) === selectedId);
       const mgr = managers.find((m) => m.userId === managerUserId);
+      // Send only manager fields — server coalesces the rest so salary is never wiped
       await employeesApi.update(selectedId, {
-        name: emp?.name,
-        email: emp?.email,
-        department: emp?.department,
-        position: emp?.position,
-        status: emp?.status,
         managerUserId: managerUserId === 'none' ? null : managerUserId,
         manager: mgr?.name ?? null,
       });
@@ -140,7 +150,7 @@ export function OrgHierarchyPanel() {
           <CardContent className="grid sm:grid-cols-3 gap-3 items-end">
             <div className="space-y-1.5">
               <Label>Employee</Label>
-              <Select value={selectedId} onValueChange={setSelectedId}>
+              <Select value={selectedId} onValueChange={onSelectEmployee}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select employee" />
                 </SelectTrigger>
@@ -148,6 +158,7 @@ export function OrgHierarchyPanel() {
                   {flat.map((e) => (
                     <SelectItem key={e.id} value={String(e.id)}>
                       {e.name}
+                      {e.managerName ? ` → ${e.managerName}` : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -161,11 +172,16 @@ export function OrgHierarchyPanel() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">No manager</SelectItem>
-                  {managers.map((m) => (
-                    <SelectItem key={m.userId!} value={m.userId!}>
-                      {m.name} ({m.role})
-                    </SelectItem>
-                  ))}
+                  {managers
+                    .filter((m) => {
+                      const emp = flat.find((e) => String(e.id) === selectedId);
+                      return !emp?.userId || m.userId !== emp.userId;
+                    })
+                    .map((m) => (
+                      <SelectItem key={m.userId!} value={m.userId!}>
+                        {m.name} ({m.role})
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
