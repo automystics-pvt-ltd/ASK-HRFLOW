@@ -47,15 +47,17 @@ test('admin mobile shell', async ({ page }) => {
 });
 
 test('admin tablet audit logs readable', async ({ page }) => {
-  await page.setViewportSize({ width: 768, height: 1024 });
+  // 820px is md+ (sidebar visible) but still < lg so Audit Logs uses the card list
+  await page.setViewportSize({ width: 820, height: 1024 });
   await page.goto('/');
   await page.locator('#email').fill('alvi@automystics.com');
   await page.locator('#password').fill('demo123');
   await page.getByRole('button', { name: /^Sign in$/i }).click();
   await expect(page.getByText(/Good (morning|afternoon|evening), Alvi/i)).toBeVisible({ timeout: 15000 });
-  await page.getByRole('button', { name: 'Open menu' }).click();
-  await page.getByRole('button', { name: /^Audit Logs$/i }).click();
-  await expect(page.getByRole('heading', { name: /Audit Logs/i })).toBeVisible({ timeout: 10000 });
+  await page.getByRole('button', { name: /^Audit Logs$/i }).first().click();
+  await expect(page.getByRole('main').getByRole('heading', { name: /Audit Logs/i })).toBeVisible({
+    timeout: 10000,
+  });
   // Page itself should not require horizontal scroll; card list used below lg
   const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
@@ -72,7 +74,9 @@ test('admin mobile audit logs cards', async ({ page }) => {
   await expect(page.getByText(/Good (morning|afternoon|evening), Alvi/i)).toBeVisible({ timeout: 15000 });
   await page.getByRole('button', { name: 'Open menu' }).click();
   await page.getByRole('button', { name: /^Audit Logs$/i }).click();
-  await expect(page.getByRole('heading', { name: /Audit Logs/i })).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole('main').getByRole('heading', { name: /Audit Logs/i })).toBeVisible({
+    timeout: 10000,
+  });
   await expect(page.getByText(/Search & filters/i)).toBeVisible();
   const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
