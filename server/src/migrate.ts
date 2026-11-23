@@ -101,6 +101,28 @@ async function ensureEmployeeLocationColumns() {
   await ensureColumn('employees', 'district', 'VARCHAR(120) NULL');
 }
 
+async function ensureProdReadyColumns() {
+  await ensureColumn('employees', 'created_by', 'VARCHAR(32) NULL');
+  await ensureColumn('employees', 'updated_by', 'VARCHAR(32) NULL');
+  await ensureColumn('employees', 'updated_at', 'TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP');
+  await ensureColumn('leave_requests', 'created_by', 'VARCHAR(32) NULL');
+  await ensureColumn('leave_requests', 'updated_by', 'VARCHAR(32) NULL');
+  await ensureColumn('leave_requests', 'updated_at', 'TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP');
+  await ensureColumn('expense_claims', 'created_by', 'VARCHAR(32) NULL');
+  await ensureColumn('expense_claims', 'updated_by', 'VARCHAR(32) NULL');
+  await ensureColumn('expense_claims', 'currency_code', 'VARCHAR(8) NULL');
+  await ensureColumn('payroll_runs', 'created_by', 'VARCHAR(32) NULL');
+  await ensureColumn('payroll_runs', 'currency_code', 'VARCHAR(8) NULL');
+  await ensureColumn('payslips', 'currency_code', 'VARCHAR(8) NULL');
+  await ensureColumn('employee_salary_structures', 'currency_code', 'VARCHAR(8) NULL');
+  await ensureColumn('employee_salary_structures', 'updated_by', 'VARCHAR(32) NULL');
+  await ensureColumn('employee_salary_structures', 'updated_at', 'TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP');
+  await ensureColumn('audit_logs', 'module_key', 'VARCHAR(64) NULL');
+  await ensureColumn('audit_logs', 'before_json', 'JSON NULL');
+  await ensureColumn('audit_logs', 'after_json', 'JSON NULL');
+  console.log('  ~ prod-ready audit/currency columns ensured');
+}
+
 async function main() {
   await ensureMigrationsTable();
   const done = await applied();
@@ -125,6 +147,7 @@ async function main() {
         }
         if (id === '005_auth_password_security') await ensureAuthColumns();
         if (id === '006_employee_state') await ensureEmployeeLocationColumns();
+        if (id === '009_prod_ready_audit_currency') await ensureProdReadyColumns();
         continue;
       }
       const sql = fs.readFileSync(path.join(migDir, file), 'utf8');
@@ -136,6 +159,7 @@ async function main() {
       }
       if (id === '005_auth_password_security') await ensureAuthColumns();
       if (id === '006_employee_state') await ensureEmployeeLocationColumns();
+      if (id === '009_prod_ready_audit_currency') await ensureProdReadyColumns();
       await pool.query('INSERT INTO schema_migrations (id) VALUES (?)', [id]);
       console.log(`Applied migration ${id}`);
     }
@@ -144,6 +168,11 @@ async function main() {
   await ensureAdvancedColumns();
   await ensureAuthColumns();
   await ensureEmployeeLocationColumns();
+  try {
+    await ensureProdReadyColumns();
+  } catch (e) {
+    console.warn('Prod-ready columns ensure skipped:', e instanceof Error ? e.message : e);
+  }
   try {
     await ensureManagerRoleEnums();
   } catch (e) {

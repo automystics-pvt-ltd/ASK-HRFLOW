@@ -102,10 +102,12 @@ payrollRouter.put('/salary-structure/:employeeId', requireAuth, requirePermissio
     DEFAULT_TENANT,
   ]);
   if (!emp) return res.status(404).json({ error: 'Employee not found' });
+  const { getReportingCurrency } = await import('../lib/org-settings.js');
+  const currencyCode = await getReportingCurrency();
   const id = await insert(
     `INSERT INTO employee_salary_structures
-     (tenant_id, employee_id, effective_from, basic, components_json, notes, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+     (tenant_id, employee_id, effective_from, basic, components_json, notes, created_by, currency_code, updated_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
     [
       DEFAULT_TENANT,
       req.params.employeeId,
@@ -114,9 +116,11 @@ payrollRouter.put('/salary-structure/:employeeId', requireAuth, requirePermissio
       JSON.stringify(components ?? {}),
       notes ?? null,
       req.user!.sub,
+      currencyCode,
+      req.user!.sub,
     ],
   );
-  res.json({ id });
+  res.json({ id, currencyCode });
 });
 
 payrollRouter.get('/components', requireAuth, requirePermission('payroll', 'read'), async (_req, res) => {
@@ -157,19 +161,21 @@ payrollRouter.post('/runs', requireAuth, requirePermission('payroll', 'update'),
     computed.push({ empId: e.id, net: result.net, breakdown: result as unknown as Record<string, unknown> });
   }
 
+  const { getReportingCurrency } = await import('../lib/org-settings.js');
+  const currencyCode = await getReportingCurrency();
   const runId = await insert(
-    `INSERT INTO payroll_runs (tenant_id, period_label, period_start, period_end, status, total_amount)
-     VALUES ($1,$2,$3,$4,'processed',$5)`,
-    [DEFAULT_TENANT, periodLabel, periodStart, periodEnd, total],
+    `INSERT INTO payroll_runs (tenant_id, period_label, period_start, period_end, status, total_amount, created_by, currency_code)
+     VALUES ($1,$2,$3,$4,'processed',$5,$6,$7)`,
+    [DEFAULT_TENANT, periodLabel, periodStart, periodEnd, total, req.user!.sub, currencyCode],
   );
   for (const c of computed) {
     await query(
-      `INSERT INTO payslips (tenant_id, payroll_run_id, employee_id, net_pay, breakdown)
-       VALUES ($1,$2,$3,$4,$5)`,
-      [DEFAULT_TENANT, runId, c.empId, c.net, JSON.stringify(c.breakdown)],
+      `INSERT INTO payslips (tenant_id, payroll_run_id, employee_id, net_pay, breakdown, currency_code)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [DEFAULT_TENANT, runId, c.empId, c.net, JSON.stringify(c.breakdown), currencyCode],
     );
   }
-  res.status(201).json({ id: runId, total, employeesProcessed: emps.length });
+  res.status(201).json({ id: runId, total, employeesProcessed: emps.length, currencyCode });
 });
 
 payrollRouter.get('/payslips/:id/html', requireAuth, requirePermission('payroll', 'read'), async (req, res) => {

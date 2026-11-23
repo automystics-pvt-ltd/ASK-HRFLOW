@@ -318,8 +318,32 @@ export const dashboardApi = {
         attendanceRate: number;
         monthlyPayroll: number;
         newHires: number;
+        presentToday?: number;
+        pendingClaims?: number;
+        pendingApprovals?: number;
+        reportingCurrency?: string;
       };
     }>('/api/dashboard/stats'),
+  employeeActivity: () =>
+    api<{
+      currency: string;
+      employees: Array<{
+        id: number;
+        name: string;
+        department: string;
+        status: string;
+        presentDays30: number;
+        pendingLeave: number;
+        pendingClaims: number;
+        payrollYtd: number;
+        monthlySalary: number;
+        annualSalary: number;
+        createdBy: string | null;
+        updatedBy: string | null;
+        updatedAt: string | null;
+        joinDate: string | null;
+      }>;
+    }>('/api/dashboard/employee-activity'),
 };
 
 export const accessApi = {
@@ -348,7 +372,24 @@ export const noticesApi = {
 };
 
 export const auditApi = {
-  list: (limit = 100) => api<{ audit: AuditEntry[] }>(`/api/audit?limit=${limit}`),
+  list: (limit = 100, params?: Record<string, string | number | undefined>) => {
+    const q = new URLSearchParams({ limit: String(limit) });
+    if (params) {
+      for (const [k, v] of Object.entries(params)) {
+        if (v != null && v !== '') q.set(k, String(v));
+      }
+    }
+    return api<{ audit: AuditEntry[]; total?: number; timezone?: string }>(`/api/audit?${q}`);
+  },
+  facets: () =>
+    api<{
+      modules: Array<{ key: string; count: number }>;
+      actors: Array<{ id: string; name: string; count: number }>;
+    }>('/api/audit/facets'),
+  forEmployee: (id: number | string, limit = 100) =>
+    api<{ employee: { id: number; name: string }; audit: AuditEntry[]; timezone?: string }>(
+      `/api/audit/employee/${id}?limit=${limit}`,
+    ),
 };
 
 export const payrollApi = {
@@ -480,6 +521,12 @@ export const brandingApi = {
     api<{ theme: BrandingTheme }>('/api/branding/theme', {
       method: 'PUT',
       body: JSON.stringify(theme),
+    }),
+  exchangeRates: () => api<{ rates: Record<string, number> }>('/api/branding/exchange-rates'),
+  updateExchangeRates: (rates: Record<string, number>) =>
+    api<{ rates: Record<string, number> }>('/api/branding/exchange-rates', {
+      method: 'PUT',
+      body: JSON.stringify({ rates }),
     }),
   uploadLogo: async (file: File) => {
     const fd = new FormData();

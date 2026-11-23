@@ -189,10 +189,12 @@ router.post('/', requireAuth, requirePermission('attendance', 'create'), upload.
   ]);
   const managerId = await getEmployeeManagerUserId(req.user!.sub);
 
+  const { getReportingCurrency } = await import('../lib/org-settings.js');
+  const currencyCode = await getReportingCurrency();
   const id = await insert(
     `INSERT INTO expense_claims
-     (tenant_id, user_id, employee_id, category_id, amount, expense_date, description, receipt_path, status, current_approver_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9)`,
+     (tenant_id, user_id, employee_id, category_id, amount, expense_date, description, receipt_path, status, current_approver_id, created_by, updated_by, currency_code)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$11,$12)`,
     [
       DEFAULT_TENANT,
       req.user!.sub,
@@ -203,6 +205,9 @@ router.post('/', requireAuth, requirePermission('attendance', 'create'), upload.
       description,
       receiptPath,
       managerId,
+      req.user!.sub,
+      req.user!.sub,
+      currencyCode,
     ],
   );
 
@@ -240,6 +245,18 @@ router.post('/', requireAuth, requirePermission('attendance', 'create'), upload.
   const admins = await activeUsersByRoles(['admin']);
   recipients.push(...admins.map((u) => u.id));
   await notifyUserIds(recipients, 'Expense claim pending', body, 'claim', `n-clreq-${id}`);
+
+  await writeAudit(
+    req.user!.sub,
+    requester?.name ?? 'User',
+    'Claim submitted',
+    `${catName} claim of ${amount} (${currencyCode})`,
+    String(id),
+    {
+      moduleKey: 'claims',
+      after: { amount, currencyCode, expenseDate, description, status: 'pending' },
+    },
+  );
 
   res.status(201).json({ id });
 });

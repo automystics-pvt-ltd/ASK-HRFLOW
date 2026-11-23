@@ -364,8 +364,8 @@ router.post('/', requireAuth, requirePermission('attendance', 'create'), async (
   }
 
   const id = await insert(
-    `INSERT INTO leave_requests (tenant_id, user_id, employee_name, leave_type_id, type, start_date, end_date, days, status, reason, half_day)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Pending',$9,$10)`,
+    `INSERT INTO leave_requests (tenant_id, user_id, employee_name, leave_type_id, type, start_date, end_date, days, status, reason, half_day, created_by, updated_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Pending',$9,$10,$11,$12)`,
     [
       DEFAULT_TENANT,
       req.user!.sub,
@@ -377,7 +377,17 @@ router.post('/', requireAuth, requirePermission('attendance', 'create'), async (
       dayCount,
       reason ?? '',
       halfDay ? 1 : 0,
+      req.user!.sub,
+      req.user!.sub,
     ],
+  );
+  await writeAudit(
+    req.user!.sub,
+    user?.name ?? 'User',
+    'Leave requested',
+    `${type} ${startDate}→${endDate} (${dayCount}d)`,
+    String(id),
+    { moduleKey: 'leave', after: { type, startDate, endDate, days: dayCount, status: 'Pending' } },
   );
 
   let approvalRequestId: number | null = null;
@@ -480,8 +490,26 @@ router.post('/:id/approve', requireAuth, requirePermission('attendance', 'approv
 
   await notifyLeaveDecision(String(row.user_id), req.params.id, status, reasonText || status);
 
+  await query(
+    `UPDATE leave_requests SET updated_by = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND tenant_id = $3`,
+    [req.user!.sub, req.params.id, DEFAULT_TENANT],
+  ).catch(() => undefined);
+
   const u = await ensureAppUser(req);
-  if (u) await writeAudit(u.id, u.name, 'Leave decision', `${status} leave #${req.params.id}: ${reasonText}`, String(req.params.id));
+  if (u) {
+    await writeAudit(
+      u.id,
+      u.name,
+      'Leave decision',
+      `${status} leave #${req.params.id}: ${reasonText}`,
+      String(req.params.id),
+      {
+        moduleKey: 'leave',
+        before: { status: 'Pending' },
+        after: { status, reason: reasonText },
+      },
+    );
+  }
   res.json({ ok: true });
 });
 

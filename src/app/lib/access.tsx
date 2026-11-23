@@ -92,7 +92,20 @@ export interface AppUser {
   isDemo?: boolean;
   mfaEnabled?: boolean;
 }
-export interface AuditEntry { id: string; ts: string; actorId: string; actorName: string; event: string; targetId?: string; detail: string }
+export interface AuditEntry {
+  id: string;
+  ts: string;
+  displayTime?: string;
+  actorId: string;
+  actorName: string;
+  event: string;
+  targetId?: string;
+  detail: string;
+  moduleKey?: string | null;
+  before?: unknown;
+  after?: unknown;
+  timezone?: string;
+}
 export interface Notice { id: string; ts: string; userId: string | 'all'; title: string; body: string; read: string[]; kind: 'approval' | 'access' | 'announcement' | 'alert' }
 
 const seedNotices: Notice[] = [
