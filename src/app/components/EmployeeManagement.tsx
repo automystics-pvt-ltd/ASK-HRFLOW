@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { toast } from 'sonner';
 import { useRole } from '../lib/roles';
 import { useCurrency, formatMoney } from '../lib/currency';
-import { employeesApi } from '../lib/api';
+import { accessApi, employeesApi } from '../lib/api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -89,6 +89,9 @@ export function EmployeeManagement() {
   const { can } = useRole();
   const { currencyFor } = useCurrency();
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [managerOptions, setManagerOptions] = useState<
+    { id: string; name: string; role: string; email: string }[]
+  >([]);
   const [searchTerm, setSearchTerm] = useState(() => { const q = sessionStorage.getItem('global-search') ?? ''; sessionStorage.removeItem('global-search'); return q; });
   const [selectedDepartment, setSelectedDepartment] = useState('All');
   const [selectedStatus, setSelectedStatus] = useState('All');
@@ -127,9 +130,14 @@ export function EmployeeManagement() {
   });
 
   const reloadEmployees = () =>
-    employeesApi
-      .list()
-      .then(({ employees: rows }) => setEmployees((rows ?? []).map(mapRow)))
+    Promise.all([
+      employeesApi.list(),
+      accessApi.managers().catch(() => ({ managers: [] as { id: string; name: string; role: string; email: string }[] })),
+    ])
+      .then(([{ employees: rows }, mgrs]) => {
+        setEmployees((rows ?? []).map(mapRow));
+        setManagerOptions(mgrs.managers ?? []);
+      })
       .catch((e) => setListError(e instanceof Error ? e.message : 'Failed to load employees'));
 
   useEffect(() => {
@@ -141,13 +149,6 @@ export function EmployeeManagement() {
   useEffect(() => {
     void reloadEmployees();
   }, []);
-
-  const managerOptions = employees.filter(
-    (e) =>
-      e.userId &&
-      e.status === 'Active' &&
-      (!e.role || e.role === 'manager' || e.role === 'admin' || e.role === 'hr'),
-  );
 
   const openEdit = (employee: EmployeeRecord) => {
     setSelectedEmployee(employee);
@@ -177,7 +178,7 @@ export function EmployeeManagement() {
       toast.error('An employee cannot be their own manager.');
       return;
     }
-    const mgr = managerOptions.find((m) => m.userId === editForm.managerUserId);
+    const mgr = managerOptions.find((m) => m.id === editForm.managerUserId);
     setEditBusy(true);
     try {
       const payload: Record<string, unknown> = {
@@ -214,7 +215,7 @@ export function EmployeeManagement() {
       toast.error('Name, email and position are required.');
       return;
     }
-    const mgr = managerOptions.find((m) => m.userId === addForm.managerUserId);
+    const mgr = managerOptions.find((m) => m.id === addForm.managerUserId);
     setAddBusy(true);
     try {
       await employeesApi.create({
@@ -417,8 +418,8 @@ export function EmployeeManagement() {
                       <SelectContent>
                         <SelectItem value="none">No manager</SelectItem>
                         {managerOptions.map((m) => (
-                          <SelectItem key={String(m.userId)} value={String(m.userId)}>
-                            {m.name} ({m.position || m.department})
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.name} ({m.role})
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -629,10 +630,10 @@ export function EmployeeManagement() {
                     <SelectContent>
                       <SelectItem value="none">No manager</SelectItem>
                       {managerOptions
-                        .filter((m) => m.userId !== selectedEmployee.userId)
+                        .filter((m) => m.id !== selectedEmployee.userId)
                         .map((m) => (
-                          <SelectItem key={String(m.userId)} value={String(m.userId)}>
-                            {m.name} ({m.position || m.department})
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.name} ({m.role})
                           </SelectItem>
                         ))}
                     </SelectContent>

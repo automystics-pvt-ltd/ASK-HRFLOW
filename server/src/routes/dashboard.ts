@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { DEFAULT_TENANT, query } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
-import { getReportingCurrency } from '../lib/org-settings.js';
+import { getReportingCurrency, getSalaryBasis, toMonthlySalary } from '../lib/org-settings.js';
 
 const router = Router();
 
@@ -48,14 +48,16 @@ router.get('/stats', requireAuth, requirePermission('dashboard', 'read'), async 
   );
 
   // Payroll aggregates are confidential — Admin/HR see team/company totals; employees see own; managers never.
+  const salaryBasis = await getSalaryBasis();
   let monthlyPayroll: number | null = null;
   if (role === 'admin' || role === 'hr' || role === 'employee') {
-    const [payroll] = await query<{ monthly: number | string }>(
-      `SELECT COALESCE(SUM(CASE WHEN status = 'Active' THEN salary / 12 ELSE 0 END), 0) AS monthly
-       FROM employees WHERE ${empWhere}`,
+    const salaryRows = await query<{ salary: number | string }>(
+      `SELECT salary FROM employees WHERE ${empWhere} AND status = 'Active'`,
       empParams,
     );
-    monthlyPayroll = Math.round(Number(payroll?.monthly ?? 0));
+    monthlyPayroll = Math.round(
+      salaryRows.reduce((sum, r) => sum + toMonthlySalary(Number(r.salary ?? 0), salaryBasis), 0),
+    );
   }
 
   const hireFilters = [...empFilters, 'join_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)'];
@@ -183,24 +185,30 @@ router.get('/employee-activity', requireAuth, requirePermission('dashboard', 're
   );
 
   const currency = await getReportingCurrency();
+  const basis = await getSalaryBasis();
   res.json({
     currency,
-    employees: rows.map((r) => ({
-      id: Number(r.id),
-      name: String(r.name),
-      department: String(r.department ?? ''),
-      status: String(r.status ?? ''),
-      presentDays30: Number(r.present_days ?? 0),
-      pendingLeave: Number(r.pending_leave ?? 0),
-      pendingClaims: Number(r.pending_claims ?? 0),
-      payrollYtd: Number(r.payroll_ytd ?? 0),
-      monthlySalary: Math.round(Number(r.salary ?? 0) / 12),
-      annualSalary: Number(r.salary ?? 0),
-      createdBy: r.created_by ?? null,
-      updatedBy: r.updated_by ?? null,
-      updatedAt: r.updated_at ? new Date(String(r.updated_at)).toISOString() : null,
-      joinDate: r.join_date ? String(r.join_date).slice(0, 10) : null,
-    })),
+    salaryBasis: basis,
+    employees: rows.map((r) => {
+      const stored = Number(r.salary ?? 0);
+      const monthly = toMonthlySalary(stored, basis);
+      return {
+        id: Number(r.id),
+        name: String(r.name),
+        department: String(r.department ?? ''),
+        status: String(r.status ?? ''),
+        presentDays30: Number(r.present_days ?? 0),
+        pendingLeave: Number(r.pending_leave ?? 0),
+        pendingClaims: Number(r.pending_claims ?? 0),
+        payrollYtd: Number(r.payroll_ytd ?? 0),
+        monthlySalary: Math.round(monthly),
+        annualSalary: basis === 'monthly' ? Math.round(monthly * 12) : stored,
+        createdBy: r.created_by ?? null,
+        updatedBy: r.updated_by ?? null,
+        updatedAt: r.updated_at ? new Date(String(r.updated_at)).toISOString() : null,
+        joinDate: r.join_date ? String(r.join_date).slice(0, 10) : null,
+      };
+    }),
   });
 });
 

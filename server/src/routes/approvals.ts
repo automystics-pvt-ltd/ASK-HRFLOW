@@ -420,7 +420,7 @@ router.get('/history', requireAuth, async (req, res) => {
 
   let sql = `
     SELECT ar.id, ar.module_key, ar.entity_type, ar.entity_id, ar.status, ar.created_at, ar.updated_at,
-           ar.requester_id, u.name AS requester_name, e.department, e.manager_user_id,
+           ar.requester_id, ar.payload, u.name AS requester_name, e.department, e.manager_user_id,
            aa.action AS last_action, aa.comment AS last_comment, aa.actor_id AS last_actor_id,
            actor.name AS last_actor_name, aa.created_at AS decided_at
     FROM approval_requests ar
@@ -451,24 +451,38 @@ router.get('/history', requireAuth, async (req, res) => {
 
   const rows = await query(sql, params);
   res.json({
-    history: rows.map((r) => ({
-      id: r.id,
-      moduleKey: r.module_key,
-      entityType: r.entity_type,
-      entityId: r.entity_id,
-      status: r.status,
-      requesterId: r.requester_id,
-      requesterName: r.requester_name,
-      department: r.department,
-      managerUserId: r.manager_user_id,
-      lastAction: r.last_action,
-      lastComment: r.last_comment,
-      lastActorId: r.last_actor_id,
-      lastActorName: r.last_actor_name,
-      decidedAt: r.decided_at,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
-    })),
+    history: rows.map((r) => {
+      let payload: Record<string, unknown> | null = null;
+      if (r.payload != null) {
+        if (typeof r.payload === 'object') payload = r.payload as Record<string, unknown>;
+        else if (typeof r.payload === 'string') {
+          try {
+            payload = JSON.parse(r.payload) as Record<string, unknown>;
+          } catch {
+            payload = null;
+          }
+        }
+      }
+      return {
+        id: r.id,
+        moduleKey: r.module_key,
+        entityType: r.entity_type,
+        entityId: r.entity_id,
+        status: r.status,
+        requesterId: r.requester_id,
+        requesterName: r.requester_name,
+        department: r.department,
+        managerUserId: r.manager_user_id,
+        lastAction: r.last_action,
+        lastComment: r.last_comment,
+        lastActorId: r.last_actor_id,
+        lastActorName: r.last_actor_name,
+        decidedAt: r.decided_at,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+        payload,
+      };
+    }),
   });
 });
 

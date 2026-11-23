@@ -50,6 +50,24 @@ export async function getReportingCurrency(): Promise<ReportingCurrency> {
   return code === 'USD' ? 'USD' : 'INR';
 }
 
+/** How `employees.salary` is stored. Default monthly (INR-style); annual for legacy USD seeds. */
+export type SalaryBasis = 'monthly' | 'annual';
+
+export async function getSalaryBasis(): Promise<SalaryBasis> {
+  const company = await getOrgSetting<{ salaryBasis?: string; currency?: string }>('company', {});
+  const raw = String(company.salaryBasis || '').toLowerCase();
+  if (raw === 'annual' || raw === 'monthly') return raw;
+  // Sensible default: INR → monthly, otherwise annual (legacy US seed)
+  const currency = String(company.currency || 'INR').toUpperCase();
+  return currency === 'USD' ? 'annual' : 'monthly';
+}
+
+/** Convert stored employee.salary into a monthly amount for payroll/dashboards. */
+export function toMonthlySalary(stored: number, basis: SalaryBasis): number {
+  const n = Number(stored) || 0;
+  return basis === 'annual' ? Math.round((n / 12) * 100) / 100 : n;
+}
+
 export async function getCompanyTimezone(): Promise<string> {
   const company = await getOrgSetting<{ timezone?: string }>('company', {});
   return company.timezone || 'Asia/Kolkata';

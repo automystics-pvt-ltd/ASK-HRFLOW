@@ -70,7 +70,10 @@ export async function calculateEmployeePayroll(opts: {
     components = typeof raw === 'string' ? JSON.parse(raw) : (raw as typeof components);
   }
   if (!basic && opts.annualSalaryFallback) {
-    basic = Math.round((Number(opts.annualSalaryFallback) / 12) * 100) / 100;
+    const { getSalaryBasis, toMonthlySalary } = await import('./org-settings.js');
+    const basis = await getSalaryBasis();
+    // Fallback uses employees.salary — monthly or annual per company salaryBasis
+    basic = toMonthlySalary(Number(opts.annualSalaryFallback), basis);
   }
 
   const earnings: SalaryBreakdown['earnings'] = [{ code: 'basic', name: 'Basic', amount: basic }];

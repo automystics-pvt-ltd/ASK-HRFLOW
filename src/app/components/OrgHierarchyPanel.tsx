@@ -1,13 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Building2, Loader2, Network, Users } from 'lucide-react';
-import { approvalsApi, employeesApi, ApiError } from '../lib/api';
+import { accessApi, approvalsApi, employeesApi, ApiError } from '../lib/api';
 import { useAccess } from '../lib/access';
+import {
+  formatApprovalHeadline,
+  formatApprovalWhatWhy,
+  formatApprovalWhen,
+} from '../lib/approval-detail';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Label } from './ui/label';
+
+type ManagerOption = { id: string; name: string; role: string; email: string };
 
 type Emp = {
   id: number;
@@ -50,6 +57,7 @@ export function OrgHierarchyPanel() {
   const { role, can } = useAccess();
   const [tree, setTree] = useState<Emp[]>([]);
   const [flat, setFlat] = useState<Emp[]>([]);
+  const [managers, setManagers] = useState<ManagerOption[]>([]);
   const [history, setHistory] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string>('');
@@ -62,11 +70,13 @@ export function OrgHierarchyPanel() {
     setLoading(true);
     void Promise.all([
       employeesApi.hierarchy(),
+      accessApi.managers().catch(() => ({ managers: [] as ManagerOption[] })),
       approvalsApi.history({ limit: 40 }).catch(() => ({ history: [] })),
     ])
-      .then(([h, hist]) => {
+      .then(([h, mgrs, hist]) => {
         setTree((h.tree ?? []) as Emp[]);
         setFlat((h.employees ?? []) as Emp[]);
+        setManagers(mgrs.managers ?? []);
         setHistory(hist.history ?? []);
       })
       .catch((e) => toast.error(e instanceof ApiError ? e.message : 'Failed to load hierarchy'))
@@ -75,14 +85,13 @@ export function OrgHierarchyPanel() {
 
   useEffect(load, []);
 
-  const managers = flat.filter((e) => e.userId && (e.role === 'manager' || e.role === 'admin' || e.role === 'hr'));
-
   const onSelectEmployee = (id: string) => {
     setSelectedId(id);
     const emp = flat.find((e) => String(e.id) === id);
-    const current = emp?.managerUserId && managers.some((m) => m.userId === emp.managerUserId)
-      ? emp.managerUserId
-      : emp?.managerUserId || 'none';
+    const current =
+      emp?.managerUserId && managers.some((m) => m.id === emp.managerUserId)
+        ? emp.managerUserId
+        : emp?.managerUserId || 'none';
     setManagerUserId(current === emp?.userId ? 'none' : current || 'none');
   };
 
@@ -96,7 +105,7 @@ export function OrgHierarchyPanel() {
     }
     setSaving(true);
     try {
-      const mgr = managers.find((m) => m.userId === managerUserId);
+      const mgr = managers.find((m) => m.id === managerUserId);
       // Send only manager fields — server coalesces the rest so salary is never wiped
       await employeesApi.update(selectedId, {
         managerUserId: managerUserId === 'none' ? null : managerUserId,
@@ -175,10 +184,10 @@ export function OrgHierarchyPanel() {
                   {managers
                     .filter((m) => {
                       const emp = flat.find((e) => String(e.id) === selectedId);
-                      return !emp?.userId || m.userId !== emp.userId;
+                      return !emp?.userId || m.id !== emp.userId;
                     })
                     .map((m) => (
-                      <SelectItem key={m.userId!} value={m.userId!}>
+                      <SelectItem key={m.id} value={m.id}>
                         {m.name} ({m.role})
                       </SelectItem>
                     ))}
@@ -204,21 +213,40 @@ export function OrgHierarchyPanel() {
           {history.length === 0 ? (
             <p className="text-sm text-muted-foreground">No approval history yet.</p>
           ) : (
-            history.map((h) => (
-              <div key={String(h.id)} className="flex flex-wrap justify-between gap-2 border rounded-lg p-3 text-sm">
-                <div>
-                  <p className="font-medium">
-                    {String(h.requesterName)} · {String(h.moduleKey)} #{String(h.entityId)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {String(h.status)}
-                    {h.lastActorName ? ` · by ${String(h.lastActorName)}` : ''}
-                    {h.lastComment ? ` · “${String(h.lastComment)}”` : ''}
-                  </p>
+            history.map((h) => {
+              const item = h as Record<string, unknown>;
+              const detail = formatApprovalWhatWhy({
+                moduleKey: String(item.moduleKey ?? ''),
+                entityType: String(item.entityType ?? ''),
+                payload: (item.payload as Record<string, unknown>) || null,
+                stepLabel: null,
+              });
+              const when = formatApprovalWhen(
+                String(item.decidedAt || item.createdAt || '') || null,
+              );
+              return (
+                <div key={String(h.id)} className="flex flex-wrap justify-between gap-2 border rounded-lg p-3 text-sm">
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="font-medium">
+                      {formatApprovalHeadline({
+                        requesterName: String(item.requesterName ?? 'Employee'),
+                        typeLabel: String(item.moduleKey ?? 'request'),
+                        entityType: String(item.entityType ?? item.moduleKey ?? ''),
+                        entityId: item.entityId as string | number,
+                      })}
+                    </p>
+                    {detail ? <p className="text-xs text-muted-foreground">{detail}</p> : null}
+                    <p className="text-xs text-muted-foreground">
+                      {String(h.status)}
+                      {h.lastActorName ? ` · by ${String(h.lastActorName)}` : ''}
+                      {h.lastComment ? ` · “${String(h.lastComment)}”` : ''}
+                      {when ? ` · ${when}` : ''}
+                    </p>
+                  </div>
+                  <Badge variant="secondary">{String(h.department || '—')}</Badge>
                 </div>
-                <Badge variant="secondary">{String(h.department || '—')}</Badge>
-              </div>
-            ))
+              );
+            })
           )}
         </CardContent>
       </Card>
