@@ -7,6 +7,7 @@ import { Timesheet } from './Timesheet';
 import { useAccess } from '../lib/access';
 import { approvalsApi, dashboardApi, holidaysApi, leaveApi, noticesApi, activityApi, ApiError } from '../lib/api';
 import { ApprovalReasonDialog } from './ApprovalReasonDialog';
+import { formatApprovalWhatWhy, formatApprovalWhen } from '../lib/approval-detail';
 import { CalendarDays, CheckCircle2, ClipboardList, Cake, Megaphone, Users, UserPlus, Clock, FileCheck2, PartyPopper } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -242,13 +243,19 @@ export function ManagerDashboard({ go }: { go: (t: string) => void }) {
           <CardContent className="space-y-3">
             {inbox.length === 0 && <p className="text-sm text-muted-foreground">No pending items.</p>}
             {inbox.map((item) => {
-              const payload = (item.payload || {}) as Record<string, unknown>;
-              const detail =
-                item.moduleKey === 'claim'
-                  ? `Amount ${payload.amount ?? '—'} · ${String(payload.expenseDate || '')} · ${String(payload.description || payload.categoryName || '')}`
-                  : item.moduleKey === 'leave'
-                    ? `${String(payload.type || 'Leave')} · ${String(payload.days ?? '')} day(s) · ${String(payload.startDate || '')} → ${String(payload.endDate || '')} · ${String(payload.reason || '')}`
-                    : String(item.stepLabel || '');
+              const payload =
+                item.payload && typeof item.payload === 'object'
+                  ? (item.payload as Record<string, unknown>)
+                  : null;
+              const what = formatApprovalWhatWhy({
+                moduleKey: String(item.moduleKey ?? ''),
+                entityType: String(item.entityType ?? ''),
+                typeLabel: String(item.typeLabel ?? ''),
+                stepLabel: String(item.stepLabel ?? ''),
+                payload,
+              });
+              const when = formatApprovalWhen(item.createdAt != null ? String(item.createdAt) : null);
+              const detail = [what, when ? `Submitted ${when}` : ''].filter(Boolean).join(' · ');
               return (
                 <div key={String(item.id)} className="flex flex-wrap items-center justify-between gap-2 border rounded-lg p-3">
                   <div className="min-w-0">

@@ -49,6 +49,12 @@ function mapEmployee(row: Record<string, unknown>, hideSalary: boolean) {
 }
 
 router.get('/', requireAuth, attachUser, requirePermission('employees', 'read'), async (req, res) => {
+  try {
+    const { backfillEmployeeUserLinks } = await import('../lib/link-employee-user.js');
+    await backfillEmployeeUserLinks();
+  } catch {
+    /* non-fatal */
+  }
   const u = await ensureAppUser(req);
   const q = String(req.query.q || '').trim();
   const department = String(req.query.department || '').trim();
@@ -109,6 +115,12 @@ router.get('/', requireAuth, attachUser, requirePermission('employees', 'read'),
 /** Organizational hierarchy for Admin/HR (and managers for their subtree). Must be before /:id. */
 router.get('/hierarchy', requireAuth, attachUser, requirePermission('employees', 'read'), async (req, res) => {
   const role = req.user!.role;
+  try {
+    const { backfillEmployeeUserLinks } = await import('../lib/link-employee-user.js');
+    await backfillEmployeeUserLinks();
+  } catch {
+    /* non-fatal */
+  }
   const rows = await query(
     `SELECT e.id, e.user_id, e.name, e.email, e.department, e.position, e.designation, e.manager_user_id, e.manager, e.status,
             u.role AS user_role, m.name AS manager_name
@@ -197,12 +209,17 @@ router.post('/', requireAuth, attachUser, requirePermission('employees', 'create
   if (dup) return res.status(409).json({ error: 'Employee with this email already exists' });
 
   const u = await ensureAppUser(req);
+  const { linkEmployeeToUserByEmail } = await import('../lib/link-employee-user.js');
+  let linkedUserId = e.userId ?? e.user_id ?? null;
+  if (!linkedUserId) {
+    linkedUserId = await linkEmployeeToUserByEmail(email);
+  }
   const id = await insert(
     `INSERT INTO employees (tenant_id, user_id, name, email, phone, department, position, status, join_date, salary, location, state, district, country, avatar, manager, skills, manager_user_id, designation, employment_type, created_by, updated_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
     [
       DEFAULT_TENANT,
-      e.userId ?? null,
+      linkedUserId,
       e.name,
       email,
       e.phone ?? null,
@@ -313,10 +330,16 @@ router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'upda
   };
 
   const me = await ensureAppUser(req);
+  const { linkEmployeeToUserByEmail } = await import('../lib/link-employee-user.js');
+  const linkedUserId =
+    before.user_id ||
+    (await linkEmployeeToUserByEmail(next.email)) ||
+    null;
+
   await query(
     `UPDATE employees SET name=$1, email=$2, phone=$3, department=$4, position=$5, status=$6, salary=$7,
        location=$8, state=$9, district=$10, country=$11,
-       manager=$12, manager_user_id=$13,
+       manager=$12, manager_user_id=$13, user_id=COALESCE($19, user_id),
        designation=COALESCE($14, designation), employment_type=COALESCE($15, employment_type),
        updated_by=$16, updated_at=CURRENT_TIMESTAMP
      WHERE id=$17 AND tenant_id=$18`,
@@ -339,6 +362,7 @@ router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'upda
       me?.id ?? req.user!.sub,
       req.params.id,
       DEFAULT_TENANT,
+      linkedUserId,
     ],
   );
 

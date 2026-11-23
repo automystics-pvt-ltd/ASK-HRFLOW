@@ -34,6 +34,8 @@ const DEFAULT_COMPANY = {
   /** Company reporting currency — INR or USD only for financial display */
   currency: 'INR' as 'INR' | 'USD',
   timezone: 'Asia/Kolkata',
+  /** How employees.salary is stored: monthly (default for INR) or annual */
+  salaryBasis: 'monthly' as 'monthly' | 'annual',
 };
 
 const DEFAULT_THEME = {
@@ -111,6 +113,8 @@ router.put('/company', requireAuth, requirePermission('settings', 'update'), asy
   const currencyRaw = String(body.currency ?? current.currency ?? DEFAULT_COMPANY.currency).toUpperCase();
   const currency = currencyRaw === 'USD' ? 'USD' : 'INR';
   const timezone = String(body.timezone ?? current.timezone ?? DEFAULT_COMPANY.timezone).trim() || DEFAULT_COMPANY.timezone;
+  const salaryBasisRaw = String(body.salaryBasis ?? current.salaryBasis ?? DEFAULT_COMPANY.salaryBasis).toLowerCase();
+  const salaryBasis = salaryBasisRaw === 'annual' ? 'annual' : 'monthly';
   const next = {
     ...DEFAULT_COMPANY,
     ...current,
@@ -122,6 +126,7 @@ router.put('/company', requireAuth, requirePermission('settings', 'update'), asy
     website: body.website ?? current.website ?? '',
     currency,
     timezone,
+    salaryBasis,
   };
   await setSetting('company', next);
   res.json({ company: next });

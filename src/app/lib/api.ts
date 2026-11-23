@@ -377,6 +377,10 @@ export const accessApi = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  managers: () =>
+    api<{ managers: { id: string; name: string; email: string; role: string; department: string }[] }>(
+      '/api/access/managers',
+    ),
 };
 
 export const noticesApi = {
@@ -514,6 +518,7 @@ export type BrandingCompany = {
   website?: string;
   timezone?: string;
   currency?: string;
+  salaryBasis?: 'monthly' | 'annual';
 };
 
 export type BrandingTheme = {

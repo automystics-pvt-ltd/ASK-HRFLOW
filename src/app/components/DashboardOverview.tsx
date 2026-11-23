@@ -8,6 +8,7 @@ import { Button } from './ui/button';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { approvalsApi, auditApi, dashboardApi, performanceApi } from '../lib/api';
 import { ApprovalReasonDialog } from './ApprovalReasonDialog';
+import { formatApprovalWhatWhy, formatApprovalWhen } from '../lib/approval-detail';
 import { toast } from 'sonner';
 import { formatMoney, currencyByCode, useCurrency } from '../lib/currency';
 import {
@@ -20,7 +21,11 @@ type InboxItem = {
   typeLabel: string;
   requesterName: string;
   moduleKey: string;
+  entityType: string;
   entityId: string;
+  stepLabel: string;
+  createdAt: string | null;
+  payload: Record<string, unknown> | null;
   busy?: boolean;
 };
 
@@ -67,7 +72,14 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
             typeLabel: String(r.typeLabel ?? r.workflowName ?? r.moduleKey ?? 'Request'),
             requesterName: String(r.requesterName ?? r.requesterId ?? 'Employee'),
             moduleKey: String(r.moduleKey ?? ''),
+            entityType: String(r.entityType ?? r.moduleKey ?? ''),
             entityId: String(r.entityId ?? ''),
+            stepLabel: String(r.stepLabel ?? ''),
+            createdAt: r.createdAt != null ? String(r.createdAt) : null,
+            payload:
+              r.payload && typeof r.payload === 'object'
+                ? (r.payload as Record<string, unknown>)
+                : null,
           })),
         ),
       )
@@ -409,33 +421,44 @@ export function DashboardOverview({ go }: { go: (tab: string) => void }) {
             {inbox.length === 0 ? (
               <p className="text-sm text-muted-foreground">No pending approvals.</p>
             ) : (
-              inbox.map((approval) => (
-                <div key={approval.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-border/50">
-                  <div>
-                    <p className="text-sm font-medium">{approval.typeLabel}</p>
-                    <p className="text-xs text-muted-foreground">{approval.requesterName}</p>
+              inbox.map((approval) => {
+                const detail = formatApprovalWhatWhy(approval);
+                const when = formatApprovalWhen(approval.createdAt);
+                return (
+                  <div key={approval.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-border/50">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">
+                        {approval.requesterName} · {approval.typeLabel}
+                      </p>
+                      {detail ? (
+                        <p className="text-xs text-muted-foreground truncate">{detail}</p>
+                      ) : null}
+                      <p className="text-xs text-muted-foreground">
+                        {[approval.stepLabel, when ? `Submitted ${when}` : ''].filter(Boolean).join(' · ')}
+                      </p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2"
+                        disabled={actingId === approval.id}
+                        onClick={() => void decide(approval.id, 'reject')}
+                      >
+                        {actingId === approval.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Reject'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 px-2"
+                        disabled={actingId === approval.id}
+                        onClick={() => void decide(approval.id, 'approve')}
+                      >
+                        {actingId === approval.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Approve'}
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex gap-2 shrink-0">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2"
-                      disabled={actingId === approval.id}
-                      onClick={() => void decide(approval.id, 'reject')}
-                    >
-                      {actingId === approval.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Reject'}
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="h-7 px-2"
-                      disabled={actingId === approval.id}
-                      onClick={() => void decide(approval.id, 'approve')}
-                    >
-                      {actingId === approval.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Approve'}
-                    </Button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </CardContent>
         </Card>

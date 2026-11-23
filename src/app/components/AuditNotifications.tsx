@@ -8,6 +8,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { useAccess, type AuditEntry } from '../lib/access';
 import { approvalsApi, auditApi } from '../lib/api';
 import { ApprovalReasonDialog } from './ApprovalReasonDialog';
+import {
+  formatApprovalHeadline,
+  formatApprovalWhatWhy,
+  formatApprovalWhen,
+} from '../lib/approval-detail';
 import { toast } from 'sonner';
 import { Download, Bell, CheckCheck, Search, ShieldCheck, CheckCircle, Megaphone, AlertTriangle, Filter } from 'lucide-react';
 
@@ -306,31 +311,58 @@ export function NotificationsPage() {
             <CardTitle className="text-base">Approvals inbox ({inbox.length})</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {inbox.map((item) => (
-              <div
-                key={String(item.id)}
-                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg border border-border/50"
-              >
-                <div>
-                  <p className="font-medium">{String(item.workflowName ?? item.moduleKey)}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {String(item.entityType)} #{String(item.entityId)} · {String(item.stepLabel ?? '')}
-                  </p>
+            {inbox.map((item) => {
+              const approval = item as Record<string, unknown>;
+              const payload =
+                approval.payload && typeof approval.payload === 'object'
+                  ? (approval.payload as Record<string, unknown>)
+                  : null;
+              const detail = formatApprovalWhatWhy({
+                moduleKey: String(approval.moduleKey ?? ''),
+                entityType: String(approval.entityType ?? ''),
+                typeLabel: String(approval.typeLabel ?? ''),
+                stepLabel: String(approval.stepLabel ?? ''),
+                payload,
+              });
+              const when = formatApprovalWhen(
+                approval.createdAt != null ? String(approval.createdAt) : null,
+              );
+              return (
+                <div
+                  key={String(item.id)}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg border border-border/50"
+                >
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="font-medium">
+                      {formatApprovalHeadline({
+                        requesterName: String(approval.requesterName ?? 'Employee'),
+                        typeLabel: String(approval.typeLabel ?? approval.workflowName ?? approval.moduleKey),
+                        entityType: String(approval.entityType ?? approval.moduleKey ?? ''),
+                        entityId: approval.entityId as string | number,
+                      })}
+                    </p>
+                    {detail ? <p className="text-sm text-muted-foreground">{detail}</p> : null}
+                    <p className="text-xs text-muted-foreground">
+                      {[approval.stepLabel ? String(approval.stepLabel) : '', when ? `Submitted ${when}` : '']
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <Button size="sm" onClick={() => setReasonTarget({ id: Number(item.id), action: 'approve' })}>
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setReasonTarget({ id: Number(item.id), action: 'reject' })}
+                    >
+                      Reject
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={() => setReasonTarget({ id: Number(item.id), action: 'approve' })}>
-                    Approve
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setReasonTarget({ id: Number(item.id), action: 'reject' })}
-                  >
-                    Reject
-                  </Button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
       )}

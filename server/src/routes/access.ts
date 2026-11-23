@@ -95,6 +95,10 @@ router.patch('/users/:id', requireAuth, attachUser, requirePermission('access', 
     }
   }
 
+  // Keep employee↔user link so managers appear in reporting dropdowns and team views
+  const { linkEmployeeToUserByEmail } = await import('../lib/link-employee-user.js');
+  await linkEmployeeToUserByEmail(String(target.email), String(req.params.id));
+
   if (me) await writeAudit(me.id, me.name, 'Access updated', `Updated user ${target.name}`, req.params.id);
   const user = await getFullUser(req.params.id);
   res.json({ user });
@@ -124,10 +128,48 @@ router.post('/users', requireAuth, attachUser, requirePermission('access', 'crea
     [id, DEFAULT_TENANT, name.trim(), email.trim().toLowerCase(), hash, role, department, JSON.stringify(deptAccess)],
   );
 
-  if (me) await writeAudit(me.id, me.name, 'User created', `Created ${name}`, id);
+  // Link matching employee record so hierarchy / manager dropdown / attendance work
+  const { linkEmployeeToUserByEmail } = await import('../lib/link-employee-user.js');
+  await linkEmployeeToUserByEmail(email.trim().toLowerCase(), id);
+
+  if (me) {
+    await writeAudit(
+      me.id,
+      me.name,
+      'User created',
+      `Created ${name} as ${role}`,
+      id,
+      { moduleKey: 'access', after: { name, email, role, department } },
+    );
+  }
   const user = await getFullUser(id);
   // temporaryPassword returned once — never stored in plaintext
   res.status(201).json({ user, temporaryPassword });
+});
+
+/** Eligible reporting managers for hierarchy assignment */
+router.get('/managers', requireAuth, requirePermission('employees', 'read'), async (_req, res) => {
+  try {
+    const { backfillEmployeeUserLinks } = await import('../lib/link-employee-user.js');
+    await backfillEmployeeUserLinks();
+  } catch {
+    /* non-fatal */
+  }
+  const rows = await query<{ id: string; name: string; email: string; role: string; department: string }>(
+    `SELECT id, name, email, role, department FROM users
+     WHERE tenant_id = $1 AND active = 1 AND role IN ('manager','admin','hr')
+     ORDER BY role, name`,
+    [DEFAULT_TENANT],
+  );
+  res.json({
+    managers: rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      email: r.email,
+      role: r.role,
+      department: r.department,
+    })),
+  });
 });
 
 export default router;
