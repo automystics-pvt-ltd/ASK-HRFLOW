@@ -356,10 +356,120 @@ router.post('/:id/action', requireAuth, async (req, res) => {
         `UPDATE expense_claims SET status = 'clarification', updated_at = NOW() WHERE id = $1 AND status = 'pending'`,
         [ar.entity_id],
       );
+      await query(
+        `INSERT INTO expense_claim_actions (claim_id, actor_id, action, comment) VALUES ($1,$2,'clarification',$3)`,
+        [ar.entity_id, req.user!.sub, String(comment || '').trim()],
+      );
     }
   }
 
+  // Notify requester with structured detail (deduped)
+  const { createNotice } = await import('../lib/notices-helper.js');
+  const actor = await queryOne<{ name: string }>('SELECT name FROM users WHERE id = $1', [req.user!.sub]);
+  const statusWord =
+    action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'needs changes';
+  const kind = ar.module_key === 'claim' ? 'claim' : ar.module_key === 'leave' ? 'leave' : 'approval';
+  let detail = `${String(ar.module_key)} #${ar.entity_id}`;
+  if (ar.module_key === 'leave') {
+    const leave = await queryOne(
+      'SELECT type, start_date, end_date, days, reason FROM leave_requests WHERE id = $1',
+      [ar.entity_id],
+    );
+    if (leave) {
+      detail = `${leave.type} leave (${leave.days} day(s), ${leave.start_date} → ${leave.end_date}). Reason: ${leave.reason || '—'}`;
+    }
+  } else if (ar.module_key === 'claim') {
+    const claim = await queryOne(
+      `SELECT c.amount, c.expense_date, c.description, cat.name AS category_name
+       FROM expense_claims c LEFT JOIN expense_categories cat ON cat.id = c.category_id WHERE c.id = $1`,
+      [ar.entity_id],
+    );
+    if (claim) {
+      detail = `${claim.category_name || 'Expense'} claim of ${claim.amount} on ${claim.expense_date}: ${claim.description}`;
+    }
+  }
+  await createNotice({
+    userId: String(ar.requester_id),
+    title: `Request ${statusWord}`,
+    body: `Your ${detail} was ${statusWord} by ${actor?.name ?? 'approver'}. Comment: ${String(comment || '').trim() || '—'}`,
+    kind: kind as 'leave' | 'claim' | 'approval',
+    id: `n-apdec-${ar.id}-${action}`.slice(0, 32),
+  });
+
+  // Mirror claim approve/reject into expense_claim_actions when decided via inbox
+  if (ar.module_key === 'claim' && (action === 'approve' || action === 'reject')) {
+    await query(
+      `INSERT INTO expense_claim_actions (claim_id, actor_id, action, comment) VALUES ($1,$2,$3,$4)`,
+      [ar.entity_id, req.user!.sub, action, String(comment || '').trim()],
+    );
+  }
+
   res.json({ ok: true });
+});
+
+/** Employee-wise and team-wise approval history for Admin/HR/Manager */
+router.get('/history', requireAuth, async (req, res) => {
+  const role = req.user!.role;
+  if (!['admin', 'hr', 'manager'].includes(role)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const userId = req.query.userId ? String(req.query.userId) : null;
+  const moduleKey = req.query.moduleKey ? String(req.query.moduleKey) : null;
+  const limit = Math.min(Number(req.query.limit) || 100, 300);
+
+  let sql = `
+    SELECT ar.id, ar.module_key, ar.entity_type, ar.entity_id, ar.status, ar.created_at, ar.updated_at,
+           ar.requester_id, u.name AS requester_name, e.department, e.manager_user_id,
+           aa.action AS last_action, aa.comment AS last_comment, aa.actor_id AS last_actor_id,
+           actor.name AS last_actor_name, aa.created_at AS decided_at
+    FROM approval_requests ar
+    LEFT JOIN users u ON u.id = ar.requester_id
+    LEFT JOIN employees e ON e.tenant_id = ar.tenant_id AND e.user_id = ar.requester_id
+    LEFT JOIN approval_actions aa ON aa.id = (
+      SELECT MAX(a2.id) FROM approval_actions a2 WHERE a2.request_id = ar.id
+    )
+    LEFT JOIN users actor ON actor.id = aa.actor_id
+    WHERE ar.tenant_id = $1`;
+  const params: unknown[] = [DEFAULT_TENANT];
+  let i = 2;
+
+  if (role === 'manager') {
+    sql += ` AND e.manager_user_id = $${i++}`;
+    params.push(req.user!.sub);
+  }
+  if (userId) {
+    sql += ` AND ar.requester_id = $${i++}`;
+    params.push(userId);
+  }
+  if (moduleKey) {
+    sql += ` AND ar.module_key = $${i++}`;
+    params.push(moduleKey);
+  }
+  sql += ` ORDER BY ar.created_at DESC LIMIT $${i}`;
+  params.push(limit);
+
+  const rows = await query(sql, params);
+  res.json({
+    history: rows.map((r) => ({
+      id: r.id,
+      moduleKey: r.module_key,
+      entityType: r.entity_type,
+      entityId: r.entity_id,
+      status: r.status,
+      requesterId: r.requester_id,
+      requesterName: r.requester_name,
+      department: r.department,
+      managerUserId: r.manager_user_id,
+      lastAction: r.last_action,
+      lastComment: r.last_comment,
+      lastActorId: r.last_actor_id,
+      lastActorName: r.last_actor_name,
+      decidedAt: r.decided_at,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    })),
+  });
 });
 
 export default router;

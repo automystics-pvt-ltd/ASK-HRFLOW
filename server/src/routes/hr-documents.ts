@@ -19,6 +19,7 @@ const PLACEHOLDERS = [
   '{{relieving_date}}',
   '{{company_name}}',
   '{{company_address}}',
+  '{{company_logo}}',
   '{{today}}',
 ];
 
@@ -171,6 +172,37 @@ async function getCompany() {
   };
 }
 
+async function getLogoHtml() {
+  const [logoRow, themeRow] = await Promise.all([
+    queryOne<{ value: unknown }>(
+      'SELECT value FROM organization_settings WHERE tenant_id = $1 AND `key` = $2',
+      [DEFAULT_TENANT, 'logoPath'],
+    ),
+    queryOne<{ value: unknown }>(
+      'SELECT value FROM organization_settings WHERE tenant_id = $1 AND `key` = $2',
+      [DEFAULT_TENANT, 'theme'],
+    ),
+  ]);
+  let logoPath: string | null = null;
+  if (logoRow?.value != null) {
+    logoPath = typeof logoRow.value === 'string' ? logoRow.value.replace(/^"|"$/g, '') : String(logoRow.value);
+    if (logoPath === 'null' || !logoPath) logoPath = null;
+  }
+  let logoSize = 'md';
+  if (themeRow?.value) {
+    try {
+      const theme =
+        typeof themeRow.value === 'string' ? JSON.parse(themeRow.value) : (themeRow.value as { logoSize?: string });
+      if (theme?.logoSize && ['sm', 'md', 'lg', 'xl'].includes(theme.logoSize)) logoSize = theme.logoSize;
+    } catch {
+      /* ignore */
+    }
+  }
+  const height = logoSize === 'sm' ? 28 : logoSize === 'lg' ? 48 : logoSize === 'xl' ? 64 : 36;
+  if (!logoPath) return '';
+  return `<img src="/api/branding/logo-file" alt="Company logo" style="max-height:${height}px;width:auto;height:auto;object-fit:contain;" />`;
+}
+
 function fillTemplate(html: string, fields: Record<string, string>) {
   let out = html;
   for (const [key, val] of Object.entries(fields)) {
@@ -320,6 +352,7 @@ router.post('/generate', requireAuth, requirePermission('employees', 'create'), 
   if (!tmpl) return res.status(404).json({ error: 'No active template for this document type' });
 
   const company = await getCompany();
+  const companyLogo = await getLogoHtml();
   const extra = (fields && typeof fields === 'object' ? fields : {}) as Record<string, string>;
   const values: Record<string, string> = {
     employee_name: emp.name,
@@ -332,6 +365,7 @@ router.post('/generate', requireAuth, requirePermission('employees', 'create'), 
     relieving_date: '',
     company_name: company.name,
     company_address: company.address,
+    company_logo: companyLogo,
     today: isoDate(new Date()),
     ...Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, String(v ?? '')])),
   };
@@ -341,7 +375,7 @@ router.post('/generate', requireAuth, requirePermission('employees', 'create'), 
     if (!values[m]?.trim()) return res.status(400).json({ error: `Missing mandatory field: ${m}` });
   }
 
-  const header = tmpl.header_html ? String(tmpl.header_html) : '';
+  const header = tmpl.header_html ? String(tmpl.header_html) : companyLogo ? '{{company_logo}}' : '';
   const footer = tmpl.footer_html ? String(tmpl.footer_html) : '';
   const body = fillTemplate(`${header}${tmpl.body_html}${footer}`, values);
   const id = uuid().slice(0, 12);

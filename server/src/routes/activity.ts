@@ -262,4 +262,162 @@ router.get('/report', requireAuth, async (req, res) => {
   });
 });
 
+/** Manager/HR/Admin team presence + planned leave for dashboards */
+router.get('/team-dashboard', requireAuth, async (req, res) => {
+  const role = req.user!.role;
+  if (!['admin', 'hr', 'manager'].includes(role)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  let empSql = `SELECT e.id, e.user_id, e.name, e.department, e.position, e.designation, e.manager_user_id, e.status
+                FROM employees e WHERE e.tenant_id = $1 AND e.status = 'Active'`;
+  const params: unknown[] = [DEFAULT_TENANT];
+  if (role === 'manager') {
+    empSql += ' AND e.manager_user_id = $2';
+    params.push(req.user!.sub);
+  }
+  empSql += ' ORDER BY e.name';
+  const employees = await query(empSql, params);
+
+  const members = [];
+  let working = 0;
+  let onLeave = 0;
+  let absent = 0;
+  let pendingRequests = 0;
+
+  for (const e of employees) {
+    const uid = e.user_id ? String(e.user_id) : null;
+    let todayStatus: 'working' | 'on_leave' | 'absent' | 'unknown' = 'unknown';
+    let leaveToday: Record<string, unknown> | null = null;
+    let upcoming: Record<string, unknown>[] = [];
+    let pending: Record<string, unknown>[] = [];
+    let history: Record<string, unknown>[] = [];
+
+    if (uid) {
+      const leaveNow = await queryOne(
+        `SELECT id, type, start_date, end_date, days, reason, status
+         FROM leave_requests
+         WHERE tenant_id = $1 AND user_id = $2 AND status = 'Approved'
+           AND start_date <= $3 AND end_date >= $3
+         ORDER BY start_date LIMIT 1`,
+        [DEFAULT_TENANT, uid, today],
+      );
+      const att = await queryOne(
+        `SELECT status, check_in, check_out FROM attendance_days
+         WHERE tenant_id = $1 AND user_id = $2 AND work_date = $3 LIMIT 1`,
+        [DEFAULT_TENANT, uid, today],
+      );
+      if (leaveNow) {
+        todayStatus = 'on_leave';
+        onLeave += 1;
+        leaveToday = {
+          id: leaveNow.id,
+          type: leaveNow.type,
+          startDate: isoDate(leaveNow.start_date as Date | string),
+          endDate: isoDate(leaveNow.end_date as Date | string),
+          days: Number(leaveNow.days),
+          reason: leaveNow.reason,
+          status: leaveNow.status,
+        };
+      } else if (att && (att.check_in || String(att.status).toLowerCase().includes('present'))) {
+        todayStatus = 'working';
+        working += 1;
+      } else if (att && String(att.status).toLowerCase().includes('absent')) {
+        todayStatus = 'absent';
+        absent += 1;
+      } else {
+        // No check-in yet on a workday → treat as absent for availability
+        todayStatus = 'absent';
+        absent += 1;
+      }
+
+      upcoming = (
+        await query(
+          `SELECT id, type, start_date, end_date, days, reason, status
+           FROM leave_requests
+           WHERE tenant_id = $1 AND user_id = $2 AND status IN ('Approved','Pending')
+             AND end_date >= $3
+           ORDER BY start_date ASC LIMIT 8`,
+          [DEFAULT_TENANT, uid, today],
+        )
+      ).map((r) => ({
+        id: r.id,
+        type: r.type,
+        startDate: isoDate(r.start_date as Date | string),
+        endDate: isoDate(r.end_date as Date | string),
+        days: Number(r.days),
+        reason: r.reason,
+        status: r.status,
+      }));
+
+      pending = (
+        await query(
+          `SELECT id, type, start_date, end_date, days, reason, status, created_at
+           FROM leave_requests
+           WHERE tenant_id = $1 AND user_id = $2 AND status = 'Pending'
+           ORDER BY created_at DESC LIMIT 10`,
+          [DEFAULT_TENANT, uid],
+        )
+      ).map((r) => ({
+        id: r.id,
+        type: r.type,
+        startDate: isoDate(r.start_date as Date | string),
+        endDate: isoDate(r.end_date as Date | string),
+        days: Number(r.days),
+        reason: r.reason,
+        status: r.status,
+        createdAt: r.created_at,
+      }));
+      pendingRequests += pending.length;
+
+      history = (
+        await query(
+          `SELECT id, type, start_date, end_date, days, reason, status, comment, decided_by
+           FROM leave_requests
+           WHERE tenant_id = $1 AND user_id = $2 AND status IN ('Approved','Rejected')
+           ORDER BY start_date DESC LIMIT 8`,
+          [DEFAULT_TENANT, uid],
+        )
+      ).map((r) => ({
+        id: r.id,
+        type: r.type,
+        startDate: isoDate(r.start_date as Date | string),
+        endDate: isoDate(r.end_date as Date | string),
+        days: Number(r.days),
+        reason: r.reason,
+        status: r.status,
+        comment: r.comment,
+        decidedBy: r.decided_by,
+      }));
+    }
+
+    members.push({
+      employeeId: e.id,
+      userId: uid,
+      name: e.name,
+      department: e.department,
+      position: e.position || e.designation,
+      managerUserId: e.manager_user_id,
+      todayStatus,
+      leaveToday,
+      upcomingLeaves: upcoming,
+      pendingLeaves: pending,
+      leaveHistory: history,
+    });
+  }
+
+  res.json({
+    today,
+    summary: {
+      teamSize: members.length,
+      working,
+      onLeave,
+      absent,
+      pendingRequests,
+    },
+    members,
+  });
+});
+
 export default router;

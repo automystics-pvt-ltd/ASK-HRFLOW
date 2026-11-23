@@ -156,7 +156,7 @@ export function LoginScreen() {
           <div className="absolute bottom-10 left-10 h-56 w-56 rounded-full bg-white/5 blur-2xl" />
         </div>
         <div className="relative z-10 space-y-6">
-          <CompanyLogo onDark className="w-64 max-h-24 object-contain" />
+          <CompanyLogo onDark size="xl" className="w-auto object-contain" />
           <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-medium tracking-wide text-white/90 ring-1 ring-white/15">
             <Building2 className="w-3.5 h-3.5" />
             {companyName}
@@ -187,7 +187,7 @@ export function LoginScreen() {
       <main className="flex items-center justify-center p-5 sm:p-8 lg:p-12">
         <div className="w-full max-w-[420px]">
           <div className="mb-8 space-y-4 lg:hidden">
-            <CompanyLogo className="w-48 max-h-16 object-contain" />
+            <CompanyLogo size="lg" className="w-auto object-contain" />
             <div>
               <p className="text-sm font-semibold text-primary">{companyName}</p>
               <p className="text-xs text-muted-foreground uppercase tracking-[0.14em] font-semibold mt-1">ASK HRFlow</p>

@@ -92,6 +92,64 @@ router.get('/', requireAuth, attachUser, requirePermission('employees', 'read'),
   });
 });
 
+/** Organizational hierarchy for Admin/HR (and managers for their subtree). Must be before /:id. */
+router.get('/hierarchy', requireAuth, attachUser, requirePermission('employees', 'read'), async (req, res) => {
+  const role = req.user!.role;
+  const rows = await query(
+    `SELECT e.id, e.user_id, e.name, e.email, e.department, e.position, e.designation, e.manager_user_id, e.manager, e.status,
+            u.role AS user_role, m.name AS manager_name
+     FROM employees e
+     LEFT JOIN users u ON u.id = e.user_id
+     LEFT JOIN users m ON m.id = e.manager_user_id
+     WHERE e.tenant_id = $1
+     ORDER BY e.department, e.name`,
+    [DEFAULT_TENANT],
+  );
+
+  let list = rows.map((r) => ({
+    id: Number(r.id),
+    userId: r.user_id ? String(r.user_id) : null,
+    name: String(r.name),
+    email: String(r.email),
+    department: String(r.department || ''),
+    position: String(r.position || r.designation || ''),
+    designation: r.designation ? String(r.designation) : null,
+    managerUserId: r.manager_user_id ? String(r.manager_user_id) : null,
+    managerName: r.manager_name ? String(r.manager_name) : r.manager ? String(r.manager) : null,
+    role: r.user_role ? String(r.user_role) : null,
+    status: String(r.status || 'Active'),
+  }));
+
+  if (role === 'manager') {
+    const teamIds = new Set(
+      list.filter((e) => e.managerUserId === req.user!.sub).map((e) => e.userId).filter(Boolean) as string[],
+    );
+    list = list.filter((e) => e.userId === req.user!.sub || (e.userId && teamIds.has(e.userId)) || e.managerUserId === req.user!.sub);
+  }
+
+  const byUser = new Map(list.filter((e) => e.userId).map((e) => [e.userId as string, e]));
+  const roots = list.filter((e) => !e.managerUserId || !byUser.has(e.managerUserId));
+  const childrenOf = (managerUserId: string | null) =>
+    list.filter((e) => (managerUserId ? e.managerUserId === managerUserId : !e.managerUserId));
+
+  type Node = (typeof list)[number] & { reports: Node[] };
+  const build = (managerUserId: string | null, depth = 0): Node[] => {
+    if (depth > 8) return [];
+    return childrenOf(managerUserId).map((e) => ({
+      ...e,
+      reports: e.userId ? build(e.userId, depth + 1) : [],
+    }));
+  };
+
+  const treeRoots = roots.length ? roots : list;
+  const tree: Node[] = treeRoots.map((r) => ({
+    ...r,
+    reports: r.userId ? build(r.userId, 1) : [],
+  }));
+
+  res.json({ employees: list, tree });
+});
+
 router.get('/:id', requireAuth, attachUser, requireSelfOrPermission('employees', 'read'), async (req, res) => {
   const row = await queryOne('SELECT * FROM employees WHERE id = $1 AND tenant_id = $2', [req.params.id, DEFAULT_TENANT]);
   if (!row) return res.status(404).json({ error: 'Not found' });
@@ -147,6 +205,12 @@ router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'upda
   ]);
   if (dup) return res.status(409).json({ error: 'Employee with this email already exists' });
 
+  const before = await queryOne(
+    'SELECT * FROM employees WHERE id = $1 AND tenant_id = $2',
+    [req.params.id, DEFAULT_TENANT],
+  );
+  if (!before) return res.status(404).json({ error: 'Not found' });
+
   const managerProvided = e.managerUserId !== undefined || e.manager_user_id !== undefined;
   const managerUserId = managerProvided ? (e.managerUserId ?? e.manager_user_id ?? null) : null;
   const managerName = e.manager !== undefined ? e.manager : null;
@@ -178,6 +242,33 @@ router.put('/:id', requireAuth, attachUser, requirePermission('employees', 'upda
       managerProvided ? 1 : 0,
     ],
   );
+
+  const me = await ensureAppUser(req);
+  if (me) {
+    const changes: string[] = [];
+    if (managerProvided && String(before.manager_user_id ?? '') !== String(managerUserId ?? '')) {
+      changes.push(`manager ${before.manager_user_id ?? '—'} → ${managerUserId ?? '—'}`);
+    }
+    if (e.department != null && String(before.department) !== String(e.department)) {
+      changes.push(`department ${before.department} → ${e.department}`);
+    }
+    if (e.designation != null && String(before.designation ?? before.position ?? '') !== String(e.designation)) {
+      changes.push(`designation → ${e.designation}`);
+    }
+    if (e.position != null && String(before.position) !== String(e.position)) {
+      changes.push(`position ${before.position} → ${e.position}`);
+    }
+    if (changes.length) {
+      await writeAudit(
+        me.id,
+        me.name,
+        'Org hierarchy updated',
+        `Employee ${before.name}: ${changes.join('; ')}`,
+        String(req.params.id),
+      );
+    }
+  }
+
   res.json({ ok: true });
 });
 
